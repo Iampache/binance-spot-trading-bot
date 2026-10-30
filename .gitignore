@@ -218,3 +218,29 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ========================================
+# BINANCE TRADING BOT - SECURITY
+# ========================================
+
+# Additional environment files
+.env.*
+!.env.example
+
+# API credentials and private keys
+*.pem
+*.key
+secrets.json
+credentials.json
+
+# Trading logs and account data
+*.csv
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+
+# Local runtime state and backups
+*.bak
+*.backup
+runtime_state/
