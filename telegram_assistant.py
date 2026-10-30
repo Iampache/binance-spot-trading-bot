@@ -10,15 +10,15 @@ B) ON DEMAND: send /check (or /check_ticker or /check-ticker) -> it asks for the
    2 -> rechecks after 15 minutes and sends you the updated status
    3 -> asks you to send:  ENTRY STOP TP1 TP2   (example: 0.0777 0.0766 0.0795 0.0806)
         then shows the same plan with [Approve] [Reject]
-   Approve -> live price re-check -> market buy -> 2 OCO exits (stop + targets), breakeven after TP1.
+   Approve -> live price re-check -> price-capped IOC buy -> 2 OCO exits (stop + targets), original stops retained after TP1.
 
 Safeguards (apply to ALL paths, including manual):
   - Only taps/messages from YOUR chat ID (TELEGRAM_CHAT_ID) are accepted
   - Proposals expire after 5 minutes (APPROVAL_TTL_SECONDS); /check cards after 10 (CHECK_TTL_SECONDS)
   - On Approve the live price is rechecked: moved >0.5% since the proposal -> refused
-  - Size cap, open-trade limit, daily loss limit, reward/risk >= 1.6 to TP1, stop below price
-  - Manual levels must be within 1% of the live price (orders are market buys)
-  - If stop/targets cannot be placed after the buy, the position is closed at market
+  - Size cap, open-trade limit, daily loss limit, reward/risk >= 1.5 to TP1, stop below price
+  - Manual levels must be within 1% of the live price (entries are price-capped IOC orders)
+  - If protection fails, confirmed bot-owned free inventory is reconciled before an exit attempt
 
 Other commands: /status  /cancel  /help
 Env extras: AUTO_SCAN=false  -> disable automatic proposals (keep only /check)
@@ -28,6 +28,7 @@ telegram_assistant.py, .env
 Run:  python telegram_assistant.py       (or double-click start_telegram_assistant.bat)
 Only ONE program may read this bot's updates at a time (409 error otherwise).
 """
+
 import json
 import math
 import os
@@ -40,6 +41,7 @@ from binance.exceptions import BinanceAPIException
 
 import entry_scanner as sc
 import exit_manager as em
+import safety
 import trade_assistant as ta
 
 TOKEN = os.getenv("TELEGRAM_TOKEN", "")
@@ -49,28 +51,39 @@ CHECK_TTL = int(os.getenv("CHECK_TTL_SECONDS", "600"))
 AUTO_SCAN = os.getenv("AUTO_SCAN", "true").lower() == "true"
 API = f"https://api.telegram.org/bot{TOKEN}"
 
-pending = {}                   # proposal id -> dict
-checks = {}                    # /check card id -> dict
-state = {}                     # conversation state for /check and manual entry
+pending = {}  # proposal id -> dict
+checks = {}  # /check card id -> dict
+state = {}  # conversation state for /check and manual entry
+recheck_timers = set()
+proposal_generation = 0
+workers = set()
 pend_lock = threading.Lock()
 trade_lock = threading.Lock()  # one live trade being executed/managed at a time
 
-HELP = ("Commands:\n"
-        "/check  - check any coin (then send the pair, e.g. BTC/USDT)\n"
-        "/check BTC/USDT - check directly\n"
-        "/status - balance and open orders\n"
-        "/cancel - cancel what you were doing\n\n"
-        "After /check: 1 = enter with the scanner plan, 2 = recheck in 15 min, 3 = manual levels.")
+HELP = (
+    "Commands:\n"
+    "/check  - check any coin (then send the pair, e.g. BTC/USDT)\n"
+    "/check BTC/USDT - check directly\n"
+    "/status - balance and open orders\n"
+    "/cancel - cancel what you were doing\n\n"
+    "After /check: 1 = enter with the scanner plan, 2 = recheck in 15 min, 3 = manual levels."
+)
 
 
 def safe(e):
-    return str(e).replace(TOKEN, "***") if TOKEN else str(e)
+    return safety.safe_error(e)
 
 
 def tg(method, **params):
     try:
         r = requests.post(f"{API}/{method}", data=params, timeout=45)
-        return r.json()
+        result = r.json()
+        if not result.get("ok"):
+            return {
+                "ok": False,
+                "description": "Telegram rejected request; check bot configuration",
+            }
+        return result
     except Exception as e:
         return {"ok": False, "description": safe(e)}
 
@@ -80,7 +93,12 @@ def say(text, **extra):
 
 
 def edit(item, status):
-    tg("editMessageText", chat_id=CHAT_ID, message_id=item["mid"], text=item["text"] + "\n\n" + status)
+    tg(
+        "editMessageText",
+        chat_id=CHAT_ID,
+        message_id=item["mid"],
+        text=item["text"] + "\n\n" + status,
+    )
 
 
 def mode_label():
@@ -104,24 +122,44 @@ def proposal_text(sig, p, note):
     ]
     if note:
         lines.append(note)
-    lines += ["", f"Expires in {APPROVAL_TTL // 60} min. Approve only after checking the chart."]
+    lines += [
+        "",
+        f"Expires in {APPROVAL_TTL // 60} min. Approve only after checking the chart.",
+    ]
     return "\n".join(lines)
 
 
 def send_proposal(sig, plan, note):
-    pid = uuid.uuid4().hex[:8]
+    with pend_lock:
+        generation = proposal_generation
+    pid = uuid.uuid4().hex
     text = proposal_text(sig, plan, note)
-    kb = {"inline_keyboard": [[
-        {"text": f"Approve (${plan['cost']:.2f})", "callback_data": f"A:{pid}"},
-        {"text": "Reject", "callback_data": f"R:{pid}"},
-    ]]}
+    kb = {
+        "inline_keyboard": [
+            [
+                {"text": f"Approve (${plan['cost']:.2f})", "callback_data": f"A:{pid}"},
+                {"text": "Reject", "callback_data": f"R:{pid}"},
+            ]
+        ]
+    }
     r = say(text, reply_markup=json.dumps(kb))
     if not r.get("ok"):
         sc.log.warning(f"Could not send proposal: {r.get('description')}")
         return
     with pend_lock:
-        pending[pid] = dict(sig=sig, plan=plan, created=time.time(),
-                            mid=r["result"]["message_id"], text=text)
+        if generation != proposal_generation:
+            edit(
+                {"mid": r["result"]["message_id"], "text": text},
+                "CANCELLED. No approval available.",
+            )
+            return
+        pending[pid] = dict(
+            sig=sig,
+            plan=plan,
+            created=time.time(),
+            mid=r["result"]["message_id"],
+            text=text,
+        )
 
 
 def expire_pending():
@@ -151,18 +189,20 @@ def diagnose(symbol):
     if not (h1[-1] > e50h[-1] and e20h[-1] > e50h[-1] and e50h[-1] > e50h[-6]):
         return ["1h trend is not up (price, EMA20 and EMA50 are not aligned upward)"]
     k = sc.klines(symbol, "15m", 120)
-    c, h, l, o, v = k["close"], k["high"], k["low"], k["open"], k["vol"]
+    c, h, lows, o, v = k["close"], k["high"], k["low"], k["open"], k["vol"]
     e20 = sc.ema(c, 20)
     r = sc.rsi(c)
     entry = c[-1]
-    touched = min(l[-3:]) <= e20[-1] * 1.003
+    touched = min(lows[-3:]) <= e20[-1] * 1.003
     near = entry <= e20[-1] * 1.025
     pull = touched and near and entry > e20[-1] and c[-1] > o[-1] and 38 <= r <= 58
     avg_vol = sum(v[-21:-1]) / 20
     brk = entry > max(h[-21:-1]) and v[-1] > 1.5 * avg_vol and r < 72 and near
     if pull or brk:
-        return ["A setup is forming, but the stop distance (must be 1-6%) or the room to the "
-                "recent high does not pass the risk rules"]
+        return [
+            "A setup is forming, but the stop distance (must be 1-6%) or the room to the "
+            "recent high does not pass the risk rules"
+        ]
     out = []
     ext = entry / e20[-1] - 1
     if ext > 0.025:
@@ -179,11 +219,17 @@ def diagnose(symbol):
 
 
 def check_ticker(symbol):
-    t = sc.get("/api/v3/ticker/24hr", symbol=symbol)   # raises HTTPError for unknown pairs
-    price, chg, qv = float(t["lastPrice"]), float(t["priceChangePercent"]), float(t["quoteVolume"])
+    t = sc.get("/api/v3/ticker/24hr", symbol=symbol)  # raises HTTPError for unknown pairs
+    price, chg, qv = (
+        float(t["lastPrice"]),
+        float(t["priceChangePercent"]),
+        float(t["quoteVolume"]),
+    )
     reasons = []
     if qv < sc.MIN_QUOTE_VOLUME:
-        reasons.append(f"Low liquidity: 24h volume ${qv / 1e6:.1f}M (minimum ${sc.MIN_QUOTE_VOLUME / 1e6:.0f}M)")
+        reasons.append(
+            f"Low liquidity: 24h volume ${qv / 1e6:.1f}M (minimum ${sc.MIN_QUOTE_VOLUME / 1e6:.0f}M)"
+        )
     if chg > sc.MAX_24H_PUMP:
         reasons.append(f"Already up {chg:+.1f}% in 24h: chasing a pump")
     if chg < sc.MAX_24H_DUMP:
@@ -192,34 +238,64 @@ def check_ticker(symbol):
     if sig is None:
         reasons += diagnose(symbol)
     status = "SAFE" if (sig and not reasons) else "WARNING"
-    return dict(symbol=symbol, price=price, chg=chg, qv=qv, sig=sig, reasons=reasons,
-                status=status, note=sc.btc_note())
+    return dict(
+        symbol=symbol,
+        price=price,
+        chg=chg,
+        qv=qv,
+        sig=sig,
+        reasons=reasons,
+        status=status,
+        note=sc.btc_note(),
+    )
 
 
-def send_check_card(res, title="CHECK"):
-    cid = uuid.uuid4().hex[:8]
+def send_check_card(res, title="CHECK", generation=None):
+    cid = uuid.uuid4().hex
     pair = f"{res['symbol'][:-4]}/USDT"
-    lines = [f"{title}: {pair}  [{mode_label()}]",
-             f"Price {sc.fmt(res['price'])} | 24h {res['chg']:+.1f}% | volume ${res['qv'] / 1e6:.0f}M", ""]
+    lines = [
+        f"{title}: {pair}  [{mode_label()}]",
+        f"Price {sc.fmt(res['price'])} | 24h {res['chg']:+.1f}% | volume ${res['qv'] / 1e6:.0f}M",
+        "",
+    ]
     if res["status"] == "SAFE":
-        lines += ["STATUS: 1 - SAFE TO ENTER", f"Why: {res['sig']['setup']}, RSI {res['sig']['rsi']:.0f}",
-                  "(Technical rules met. Execution checks may still reject. NOT a safety guarantee.)"]
-        row = [{"text": "1 - Enter (show plan)", "callback_data": f"C1:{cid}"},
-               {"text": "3 - Manual", "callback_data": f"C3:{cid}"}]
+        lines += [
+            "STATUS: 1 - SAFE TO ENTER",
+            f"Why: {res['sig']['setup']}, RSI {res['sig']['rsi']:.0f}",
+            "(Technical rules met. Execution checks may still reject. NOT a safety guarantee.)",
+        ]
+        row = [
+            {"text": "1 - Enter (show plan)", "callback_data": f"C1:{cid}"},
+            {"text": "3 - Manual", "callback_data": f"C3:{cid}"},
+        ]
     else:
-        lines += ["STATUS: 2 - WARNING - WAIT 15 MINUTES", "Reasons:"] + [f"- {x}" for x in res["reasons"]]
-        row = [{"text": "2 - Recheck in 15 min", "callback_data": f"C2:{cid}"},
-               {"text": "3 - Manual", "callback_data": f"C3:{cid}"}]
+        lines += ["STATUS: 2 - WARNING - WAIT 15 MINUTES", "Reasons:"] + [
+            f"- {x}" for x in res["reasons"]
+        ]
+        row = [
+            {"text": "2 - Recheck in 15 min", "callback_data": f"C2:{cid}"},
+            {"text": "3 - Manual", "callback_data": f"C3:{cid}"},
+        ]
     if res["note"]:
         lines += ["", res["note"]]
     text = "\n".join(lines)
     kb = {"inline_keyboard": [row, [{"text": "Cancel", "callback_data": f"CX:{cid}"}]]}
     r = say(text, reply_markup=json.dumps(kb))
     if r.get("ok"):
-        checks[cid] = dict(res=res, created=time.time(), mid=r["result"]["message_id"], text=text)
+        with pend_lock:
+            if generation is not None and generation != proposal_generation:
+                return
+            checks[cid] = dict(
+                res=res, created=time.time(), mid=r["result"]["message_id"], text=text
+            )
 
 
-def run_check(raw, title="CHECK"):
+def run_check(raw, title="CHECK", generation=None):
+    with pend_lock:
+        if generation is None:
+            generation = proposal_generation
+        if generation != proposal_generation:
+            return
     symbol = parse_symbol(raw)
     try:
         res = check_ticker(symbol)
@@ -229,7 +305,7 @@ def run_check(raw, title="CHECK"):
     except Exception as e:
         say(f"Check failed: {safe(e)}")
         return
-    send_check_card(res, title)
+    send_check_card(res, title, generation)
 
 
 def handle_check_callback(cb, action, cid):
@@ -258,7 +334,7 @@ def handle_check_callback(cb, action, cid):
         try:
             plan = ta.build_plan(res["sig"])
         except ValueError as e:
-            edit(item, f"NOT AVAILABLE: {e}")
+            edit(item, f"NOT AVAILABLE: {safety.redact(str(e))}")
             checks.pop(cid, None)
             return
         except Exception as e:
@@ -271,10 +347,14 @@ def handle_check_callback(cb, action, cid):
     elif action == "C2":
         checks.pop(cid, None)
         ack("I'll recheck in 15 minutes.")
-        when = time.strftime("%H:%M", time.localtime(time.time() + 900))
-        edit(item, f"Rechecking at about {when}. You'll get an update here.")
-        timer = threading.Timer(900, run_check, args=(res["symbol"], "UPDATE after 15 min"))
+        edit(item, "Rechecking in 15 minutes. You'll get an update here.")
+        timer = threading.Timer(
+            900,
+            run_check,
+            args=(res["symbol"], "UPDATE after 15 min", proposal_generation),
+        )
         timer.daemon = True
+        recheck_timers.add(timer)
         timer.start()
     elif action == "C3":
         checks.pop(cid, None)
@@ -282,11 +362,13 @@ def handle_check_callback(cb, action, cid):
         edit(item, "MANUAL mode selected.")
         state.clear()
         state.update(step="manual", symbol=res["symbol"], status=res["status"], t=time.time())
-        say(f"MANUAL entry for {res['symbol'][:-4]}/USDT. Current price: {sc.fmt(res['price'])}\n"
+        say(
+            f"MANUAL entry for {res['symbol'][:-4]}/USDT. Current price: {sc.fmt(res['price'])}\n"
             f"Send 4 numbers in one message:\nENTRY STOP TP1 TP2\n"
             f"Example: {sc.fmt(res['price'])} {sc.fmt(res['price'] * 0.97)} "
             f"{sc.fmt(res['price'] * 1.04)} {sc.fmt(res['price'] * 1.07)}\n"
-            f"(Entry must be within 1% of the live price. /cancel to stop.)")
+            f"(Entry must be within 1% of the live price. /cancel to stop.)"
+        )
 
 
 def handle_manual(text):
@@ -302,30 +384,43 @@ def handle_manual(text):
         say("The order must be STOP < ENTRY < TP1 < TP2. Try again or /cancel.")
         return
     symbol, status = state["symbol"], state.get("status", "?")
-    sig = dict(symbol=symbol, entry=entry, stop=stop, t1=t1, t2=t2,
-               setup="MANUAL entry (your levels)", rsi=0, chg24=0)
+    sig = dict(
+        symbol=symbol,
+        entry=entry,
+        stop=stop,
+        t1=t1,
+        t2=t2,
+        setup="MANUAL entry (your levels)",
+        rsi=0,
+        chg24=0,
+    )
     state.clear()
     try:
         plan = ta.build_plan(sig)
     except ValueError as e:
-        say(f"Cannot use these levels: {e}")
+        say(f"Cannot use these levels: {safety.redact(str(e))}")
         return
     except Exception as e:
         say(f"Error while building the plan: {safe(e)}")
         return
-    send_proposal(sig, plan, f"MANUAL entry. Scanner status was: {status}. The levels are yours, not the scanner's.")
+    send_proposal(
+        sig,
+        plan,
+        f"MANUAL entry. Scanner status was: {status}. The levels are yours, not the scanner's.",
+    )
 
 
 # ---------- execution ----------
-def run_trade(plan):
+def run_trade(plan, approval):
     try:
-        ta.execute(plan)
+        ta.execute(plan, approval=approval)
     except BinanceAPIException as e:
-        em.alert(f"Binance error: {e.message}. Check Open Orders and Holdings on Binance now.")
+        em.alert(safe(e))
     except Exception as e:
         em.alert(f"Error: {safe(e)}. Check Open Orders and Holdings on Binance now.")
     finally:
         trade_lock.release()
+        workers.discard(threading.current_thread())
 
 
 def handle_callback(cb):
@@ -340,7 +435,11 @@ def handle_callback(cb):
     with pend_lock:
         item = pending.pop(pid, None)
     if not item:
-        tg("answerCallbackQuery", callback_query_id=cb["id"], text="Expired or already used.")
+        tg(
+            "answerCallbackQuery",
+            callback_query_id=cb["id"],
+            text="Expired or already used.",
+        )
         return
     if time.time() - item["created"] > APPROVAL_TTL:
         tg("answerCallbackQuery", callback_query_id=cb["id"], text="Expired.")
@@ -361,41 +460,70 @@ def handle_callback(cb):
         old, fresh = item["plan"], ta.build_plan(item["sig"])
     except ValueError as e:
         trade_lock.release()
-        edit(item, f"NOT PLACED: {e}")
+        edit(item, f"NOT PLACED: {safety.redact(str(e))}")
         return
     except Exception as e:
         trade_lock.release()
         edit(item, f"NOT PLACED: error while checking ({safe(e)})")
         return
 
-    drift = abs(fresh["price"] / old["price"] - 1)
-    if drift > 0.005 or fresh["loss"] > old["loss"] * 1.15:
+    abs(fresh["price"] / old["price"] - 1)
+    if not ta.approval_bounds(old, fresh):
         trade_lock.release()
-        edit(item, f"NOT PLACED: price moved {drift * 100:.2f}% since the proposal. Wait for the next one.")
+        edit(
+            item,
+            "NOT PLACED: quantity, cost, risk or levels changed. A new approval is required.",
+        )
+        send_proposal(item["sig"], fresh, "Updated plan; previous approval was not used.")
         return
 
     edit(item, "APPROVED. Placing the order and the exits now...")
-    threading.Thread(target=run_trade, args=(fresh,), daemon=True).start()
+    approval = {
+        **old,
+        "approval_id": pid,
+        "expires_at": item["created"] + APPROVAL_TTL,
+        "approved": True,
+    }
+    try:
+        worker = threading.Thread(target=run_trade, args=(fresh, approval), daemon=False)
+        workers.add(worker)
+        worker.start()
+    except Exception:
+        trade_lock.release()
+        raise
 
 
 def handle_message(msg):
-    if str(msg.get("chat", {}).get("id")) != str(CHAT_ID) or str(msg.get("from", {}).get("id")) != str(CHAT_ID):
+    global proposal_generation
+    if str(msg.get("chat", {}).get("id")) != str(CHAT_ID) or str(
+        msg.get("from", {}).get("id")
+    ) != str(CHAT_ID):
         return  # strangers get no reply at all
     text = msg.get("text", "").strip()
     low = text.lower().replace("-", "_")
     if low.startswith("/status"):
         try:
-            bal = em.client.get_asset_balance(asset="USDT")["free"]
-            syms = sorted({o["symbol"] for o in em.client.get_open_orders()})
-            say(f"[{mode_label()}]\nUSDT free: {bal}\nOpen orders on: {', '.join(syms) if syms else 'none'}\n"
-                f"Pending proposals: {len(pending)}")
+            say(f"[{mode_label()}]\n{em.status_report()}\nPending proposals: {len(pending)}")
         except Exception as e:
             say(f"Status error: {safe(e)}")
     elif low.startswith(("/help", "/start")):
         say(HELP)
     elif low.startswith("/cancel"):
         state.clear()
-        say("Cancelled.")
+        checks.clear()
+        with pend_lock:
+            proposal_generation += 1
+            canceled = list(pending.values())
+            pending.clear()
+        for item in canceled:
+            edit(item, "CANCELLED. This proposal can no longer be approved.")
+        for timer in list(recheck_timers):
+            timer.cancel()
+        recheck_timers.clear()
+        say(
+            "Cancelled pending proposals, manual entry and scheduled rechecks. "
+            "Already submitted orders and protective OCOs remain active; /status shows them."
+        )
     elif low.startswith("/check"):
         parts = text.split(None, 1)
         state.clear()
@@ -413,7 +541,7 @@ def handle_message(msg):
 
 # ---------- scanner thread ----------
 def scanner_loop():
-    while True:
+    while not em.STOP.is_set():
         try:
             cands, note = ta.scan_candidates()
             sent = 0
@@ -423,7 +551,7 @@ def scanner_loop():
                 try:
                     plan = ta.build_plan(sig)
                 except ValueError as e:
-                    sc.log.info(f"{sym} skipped: {e}")
+                    sc.log.info("%s skipped: %s", sym, safety.redact(str(e)))
                     continue
                 sc.last_alert[sym] = time.time()
                 send_proposal(sig, plan, note)
@@ -431,26 +559,28 @@ def scanner_loop():
             sc.log.info(f"Scan done: {len(cands)} candidate(s), {sent} proposal(s) sent. {note}")
         except Exception as e:
             sc.log.warning(f"Scan error: {safe(e)}")
-        time.sleep(900 - (time.time() % 900) + 10)
+        em.STOP.wait(900 - (time.time() % 900) + 10)
 
 
 # ---------- main ----------
-def main():
+def _run_main():
     if not TOKEN or not CHAT_ID:
         raise SystemExit("TELEGRAM_TOKEN and TELEGRAM_CHAT_ID must be set in .env")
-    try:
-        lock_file = em.instance_lock()
-    except FileExistsError:
-        raise SystemExit("Another instance (or stale instance.lock) exists. Inspect Binance before manual lock removal.")
     unresolved = em.recover_trades()
     for record in unresolved:
-        if record["state"] in ("protected", "protection_submitting") and len(record.get("oco", [])) == 2:
-            threading.Thread(target=em.monitor_trade, args=(record,), daemon=True).start()
+        if record["state"] != "closed":
+            worker = threading.Thread(target=em.monitor_trade, args=(record,), daemon=False)
+            workers.add(worker)
+            worker.start()
     print("=" * 60)
     print(f" Telegram Trade Assistant - {mode_label()}")
-    print(f" Risk {sc.RISK_PCT}% | max ${ta.MAX_POSITION_USDT} per trade | "
-          f"max {ta.MAX_OPEN_TRADES} open | daily loss limit ${em.MAX_DAILY_LOSS_USD}")
-    print(f" Auto proposals: {'ON' if AUTO_SCAN else 'OFF'} | Send /check in Telegram to check any coin")
+    print(
+        f" Risk {sc.RISK_PCT}% | max ${ta.MAX_POSITION_USDT} per trade | "
+        f"max {ta.MAX_OPEN_TRADES} open | daily loss limit ${em.MAX_DAILY_LOSS_USD}"
+    )
+    print(
+        f" Auto proposals: {'ON' if AUTO_SCAN else 'OFF'} | Send /check in Telegram to check any coin"
+    )
     print(" Ctrl+C to stop (open orders stay active on Binance).")
     print("=" * 60)
 
@@ -458,20 +588,28 @@ def main():
     offset = 0
     r = tg("getUpdates", timeout=0)
     if not r.get("ok"):
-        raise SystemExit(f"Telegram error: {r.get('description')} "
-                         f"(409 = another program is reading this bot; 401 = wrong token)")
+        raise SystemExit(
+            f"Telegram error: {r.get('description')} "
+            f"(409 = another program is reading this bot; 401 = wrong token)"
+        )
     if r.get("result"):
         offset = r["result"][-1]["update_id"] + 1
 
-    say(f"Assistant started [{mode_label()}]. "
-        f"{'Scanning every 15 min. ' if AUTO_SCAN else ''}Send /check to check a coin, /help for commands.")
+    say(
+        f"Assistant started [{mode_label()}]. "
+        f"{'Scanning every 15 min. ' if AUTO_SCAN else ''}Send /check to check a coin, /help for commands."
+    )
     if AUTO_SCAN:
         threading.Thread(target=scanner_loop, daemon=True).start()
 
     while True:
         try:
-            r = tg("getUpdates", timeout=30, offset=offset,
-                   allowed_updates=json.dumps(["callback_query", "message"]))
+            r = tg(
+                "getUpdates",
+                timeout=30,
+                offset=offset,
+                allowed_updates=json.dumps(["callback_query", "message"]),
+            )
             if not r.get("ok"):
                 sc.log.warning(f"Telegram: {r.get('description')}")
                 time.sleep(10)
@@ -485,12 +623,34 @@ def main():
             expire_pending()
         except KeyboardInterrupt:
             print("\nStopped. Any open orders stay active on Binance.")
-            lock_file.unlink(missing_ok=True)
             break
         except Exception as e:
             sc.log.warning(f"Loop error: {safe(e)}")
             time.sleep(5)
 
 
+def main():
+    if not TOKEN or not CHAT_ID:
+        raise SystemExit("Telegram configuration missing")
+    em.initialize()
+    em.STOP.clear()
+    lock = em.instance_lock()
+    try:
+        _run_main()
+    finally:
+        em.STOP.set()
+        for timer in recheck_timers:
+            timer.cancel()
+        # Hold the process/account lock until in-flight durable transitions finish.
+        for worker in list(workers):
+            worker.join()
+        workers.clear()
+        lock.unlink()
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as error:
+        print(safety.safe_error(error))
+        raise SystemExit(1) from None

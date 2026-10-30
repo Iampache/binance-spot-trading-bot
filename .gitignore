@@ -244,3 +244,4 @@ credentials.json
 *.bak
 *.backup
 runtime_state/
+/state/

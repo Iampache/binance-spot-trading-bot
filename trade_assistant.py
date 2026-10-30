@@ -1,222 +1,223 @@
-"""Plan and execute scanner/manual Binance Spot buys with exchange-backed exit protection.
-Run telegram_assistant.py for interactive operation; this file contains no standalone loop.
-"""
+"""Telegram-approved Spot entry planning and durable execution."""
+
 import math
-import os
 import time
-import uuid
 from decimal import Decimal
 
 import entry_scanner as sc
 import exit_manager as em
+import safety
 
-MAX_POSITION_USDT = float(os.getenv('MAX_POSITION_USDT', '50'))
-MAX_OPEN_TRADES = int(os.getenv('MAX_OPEN_TRADES', '1'))
-MIN_RR = float(os.getenv('MIN_RR', '1.5'))  # aligned with entry_scanner TP1 = 1.5R
-MAX_SPREAD_BPS = float(os.getenv('MAX_SPREAD_BPS', '30'))
-MIN_DEPTH_MULTIPLE = float(os.getenv('MIN_DEPTH_MULTIPLE', '5'))
-MAX_PRICE_DRIFT_PCT = float(os.getenv('MAX_PRICE_DRIFT_PCT', '0.5'))
+MAX_POSITION_USDT = safety.MAX_POSITION_USDT
+MAX_OPEN_TRADES = safety.MAX_OPEN_TRADES
+MIN_RR = Decimal("1.5")
+MAX_SPREAD_BPS = Decimal("30")
+MIN_DEPTH_MULTIPLE = Decimal("5")
+MAX_PRICE_DRIFT_PCT = Decimal("0.5")
 LIVE = not em.USE_TESTNET
 
 
 def scan_candidates():
     note = sc.btc_note()
-    coins = sc.universe()
-    sc.log.info('Scanning %s pairs', len(coins))
-    cands = {}
-    for symbol, _, chg in coins:
+    candidates = {}
+    for symbol, _, change in sc.universe():
         try:
-            res = sc.analyze(symbol, chg)
-            if res:
-                cands[symbol] = res
-            time.sleep(0.15)
-        except Exception as e:
-            sc.log.warning('%s scan error: %s', symbol, e)
-    return cands, note
+            signal = sc.analyze(symbol, change)
+            if signal:
+                candidates[symbol] = signal
+        except Exception as error:
+            sc.log.warning("%s: %s", symbol, safety.safe_error(error))
+        time.sleep(0.15)
+    return candidates, note
 
 
 def require_finite_levels(sig):
-    vals = [sig['entry'], sig['stop'], sig['t1'], sig['t2']]
-    if not all(math.isfinite(float(x)) and float(x) > 0 for x in vals):
-        raise ValueError('All levels must be finite and positive')
-    if not (float(sig['stop']) < float(sig['entry']) < float(sig['t1']) < float(sig['t2'])):
-        raise ValueError('STOP < ENTRY < TP1 < TP2 required')
+    values = [em.D(sig[k]) for k in ("entry", "stop", "t1", "t2")]
+    if not 0 < values[1] < values[0] < values[2] < values[3]:
+        raise ValueError("STOP < ENTRY < TP1 < TP2 required, all finite and positive")
 
 
 def market_liquidity(symbol, estimated_cost, *, enforce=True):
     c = em.get_client()
     book = c.get_orderbook_ticker(symbol=symbol)
-    bid, ask = em.D(book['bidPrice']), em.D(book['askPrice'])
-    if not (bid > 0 and ask >= bid):
-        raise ValueError('Invalid best bid / ask')
-    spread_bps = float((ask - bid) / ask * 10000)
-    if enforce and spread_bps > MAX_SPREAD_BPS:
-        raise ValueError(f'Spread too wide: {spread_bps:.1f} bps > {MAX_SPREAD_BPS} bps')
+    bid, ask = em.D(book["bidPrice"]), em.D(book["askPrice"])
+    if not 0 < bid <= ask:
+        raise ValueError("Invalid best bid/ask")
+    spread = (ask - bid) / ask * 10000
     depths = c.get_order_book(symbol=symbol, limit=20)
-    bid_depth = sum(em.D(price) * em.D(qty) for price, qty in depths['bids'])
-    ask_depth = sum(em.D(price) * em.D(qty) for price, qty in depths['asks'])
-    if enforce and min(bid_depth, ask_depth) < em.D(estimated_cost) * em.D(MIN_DEPTH_MULTIPLE):
-        raise ValueError('Order-book depth too low for requested quantity')
-    return spread_bps, float(min(bid_depth, ask_depth))
+    amounts = []
+    for side in ("bids", "asks"):
+        # Only count depth near the spread; remote book levels cannot protect slippage.
+        center = bid if side == "bids" else ask
+        rows = [(em.D(p), em.D(q)) for p, q in depths[side]]
+        if any(p <= 0 or q < 0 for p, q in rows):
+            raise ValueError("Invalid depth")
+        amounts.append(
+            sum(
+                (p * q for p, q in rows if abs(p / center - 1) <= Decimal(".005")),
+                Decimal(0),
+            )
+        )
+    depth = min(amounts)
+    if enforce and (spread > MAX_SPREAD_BPS or depth < em.D(estimated_cost) * MIN_DEPTH_MULTIPLE):
+        raise ValueError("Spread too wide or order-book depth insufficient")
+    return spread, depth
+
+
+def risk_amount(qty, entry, stop, fee):
+    # Reserve full-position downside plus undiscounted buy/sell commission.
+    return em.D(qty) * (em.D(entry) - em.D(stop) + (em.D(entry) + em.D(stop)) * em.D(fee))
 
 
 def build_plan(sig):
-    """Live exchange checks; no order is placed. Raises ValueError when any check fails."""
     require_finite_levels(sig)
-    symbol = sig['symbol']
-    c = em.get_client()
-    price = float(c.get_symbol_ticker(symbol=symbol)['price'])
-    if not math.isfinite(price) or price <= 0:
-        raise ValueError('Invalid live price')
-    stop, t1, t2 = map(float, (sig['stop'], sig['t1'], sig['t2']))
-    drift = price / float(sig['entry']) - 1
-    if em.USE_TESTNET and sig.get('setup', '').startswith('MANUAL') is False:
-        ratio = price / float(sig['entry'])
-        stop, t1, t2 = stop * ratio, t1 * ratio, t2 * ratio
-    elif abs(drift) > 0.01:
-        raise ValueError(f'Live entry moved {drift * 100:+.2f}% from signal; max 1%')
-    if not (0 < stop < price < t1 < t2):
-        raise ValueError('Invalid STOP < live entry < TP1 < TP2')
-    risk = price - stop
-    rr = (t1 - price) / risk
-    if rr + 1e-9 < MIN_RR:
-        raise ValueError(f'TP1 reward/risk is {rr:.2f}R; require {MIN_RR}R')
-    if not (0.01 <= risk / price <= 0.06):
-        raise ValueError('Stop must be 1%-6% below the live entry')
-    if not math.isfinite(sc.RISK_PCT) or not (0 < sc.RISK_PCT <= 2):
-        raise ValueError('RISK_PCT must be within (0,2]')
-    if not (math.isfinite(MAX_POSITION_USDT) and MAX_POSITION_USDT > 0):
-        raise ValueError('Invalid position cap')
-    if em.todays_loss() >= em.MAX_DAILY_LOSS_USD:
-        raise ValueError('Daily bot-trade loss limit reached')
-    open_symbols = {o['symbol'] for o in c.get_open_orders()}
-    if len(open_symbols) >= MAX_OPEN_TRADES:
-        raise ValueError(f'Open orders on {sorted(open_symbols)}; open trade limit {MAX_OPEN_TRADES}')
-    balance = float(c.get_asset_balance(asset='USDT')['free'])
-    if not math.isfinite(balance) or balance <= 0:
-        raise ValueError('No available USDT')
-    f = em.symbol_filters(symbol)
-    max_cost = min(MAX_POSITION_USDT, balance * 0.95)
-    units = (balance * sc.RISK_PCT / 100) / risk
-    units = min(units, max_cost / price)
-    # Satisfy both LOT_SIZE (protective OCO) and MARKET_LOT_SIZE (buy) simultaneously.
-    qty = em.round_to(units, f['step'])
-    for _ in range(20):
-        adjusted = em.round_to(qty, f['market_step'])
-        if adjusted == qty:
-            break
-        qty = em.round_to(adjusted, f['step'])
-    else:
-        raise ValueError('Incompatible exchange market/limit step sizes')
-    em.validate_qty(qty, f, price, market=True)
-    em.validate_qty(qty, f, price)
-    half = em.round_to(qty / 2, f['step'])
-    rest = qty - half
-    if half <= 0 or rest <= 0:
-        raise ValueError('Position too small to split')
-    # Binance minimum notional must hold for every stop leg, not just targets.
-    for part in (half, rest):
-        em.validate_qty(part, f, stop)
-    spread, depth = market_liquidity(symbol, float(qty) * price, enforce=LIVE)
-    return {'symbol': symbol, 'price': price, 'stop': stop, 't1': t1, 't2': t2,
-            'qty': qty, 'half': half, 'rest': rest, 'step': f['step'],
-            'cost': float(qty) * price, 'balance': balance,
-            'loss': float(qty) * risk, 'gain1': float(half) * (t1 - price),
-            'gain2': float(rest) * (t2 - price), 'risk_pct': risk / price * 100,
-            'rr': rr, 'spread_bps': spread, 'depth_usdt': depth}
-
-
-def show_plan(p, sig, note):
-    print(f'[{"LIVE" if LIVE else "TESTNET"}] {p["symbol"]}, entry {p["price"]}, '
-          f'SL {p["stop"]}, TP1 {p["t1"]}, TP2 {p["t2"]}, '
-          f'qty {em.fmt(p["qty"])}, cost {p["cost"]:.2f} USDT, max-loss ~{p["loss"]:.2f} plus fees')
-    if note:
-        print(note)
-
-
-def execute(plan):
-    """Execute exactly ONE protected trade; refuse duplicates/uncertain journal states."""
     em.require_trade_permission()
+    if sc.RISK_PCT != 1 or MAX_POSITION_USDT != 12 or MAX_OPEN_TRADES != 1:
+        raise ValueError("Required limits: 1% risk, 12 USDT position, one open trade")
     if em.active_trades():
-        raise RuntimeError('Another tracked trade is active or unresolved. Reconcile first.')
-    symbol = plan['symbol']
+        raise ValueError("Open or unresolved bot trade exists")
     c = em.get_client()
+    symbol = sig["symbol"]
+    ticker = c.get_ticker(symbol=symbol)
+    if ticker.get("symbol") != symbol or em.D(ticker["quoteVolume"]) < safety.MIN_QUOTE_VOLUME:
+        raise ValueError("Minimum 24-hour trading volume is 10,000,000 USDT; skip trade")
+    price = em.D(c.get_symbol_ticker(symbol=symbol)["price"])
+    if price <= 0 or abs(price / em.D(sig["entry"]) - 1) > Decimal(".01"):
+        raise ValueError("Entry moved more than 1% from signal")
     f = em.symbol_filters(symbol)
-    qty = em.D(plan['qty'])
-    em.validate_qty(qty, f, plan['price'], market=True)
-    em.validate_qty(qty, f, plan['price'])
-    current = float(c.get_symbol_ticker(symbol=symbol)['price'])
-    deviation = abs(current / plan['price'] - 1) * 100
-    if deviation > MAX_PRICE_DRIFT_PCT:
-        raise ValueError('Price moved too far before order submission')
-    if not (plan['stop'] < current < plan['t1']):
-        raise ValueError('Price has crossed exit levels')
-    market_liquidity(symbol, float(qty) * current, enforce=LIVE)
-    # Check we are not about to duplicate any open positions since plan generation.
+    stop, t1, t2 = (em.round_to(sig[k], f["tick"]) for k in ("stop", "t1", "t2"))
+    if not 0 < stop < price < t1 < t2:
+        raise ValueError("Rounded protective levels invalid")
+    risk = price - stop
+    if not Decimal(".01") <= risk / price <= Decimal(".06") or (t1 - price) / risk < MIN_RR:
+        raise ValueError("Stop must be 1%-6% below entry and TP1 at least 1.5R")
     if c.get_open_orders():
-        raise RuntimeError('Open exchange orders detected before new buy: refuse ambiguous ownership')
-    if em.todays_loss() >= em.MAX_DAILY_LOSS_USD:
-        raise RuntimeError('Daily loss limit reached')
-    free_usdt = float(c.get_asset_balance(asset='USDT')['free'])
-    if free_usdt < float(qty) * current * 1.01:
-        raise ValueError('Insufficient USDT including 1% cost buffer')
-    rec = em.new_trade(plan)
-    cid = 'bsv2b' + uuid.uuid4().hex[:22]
-    rec.update(state='buy_submitting', buy_client_id=cid)
-    em.save_trade(rec)
-    try:
+        raise ValueError("Existing exchange orders: cannot establish isolated ownership")
+    balance = em.D(c.get_asset_balance(asset="USDT")["free"])
+    if balance <= 0:
+        raise ValueError("No available USDT")
+    fee = em.commission_rate(symbol)
+    remaining = em.D(3) - em.todays_loss()
+    budget = min(balance / 100, remaining)
+    if budget <= 0:
+        raise ValueError("Daily bot-trade loss limit reached")
+    risk_per_unit = risk + (price + stop) * fee
+    qty = em.round_to(
+        min(
+            budget / risk_per_unit,
+            min(em.D(12), balance * Decimal(".95")) / (price * (1 + fee)),
+        ),
+        f["step"],
+    )
+    # Compute a common exact step instead of repeatedly rounding incompatible lattices.
+    if f["market_step"] > 0:
+        from fractions import Fraction
+
+        a, b = Fraction(f["step"]), Fraction(f["market_step"])
+        common = Decimal(math.lcm(a.numerator, b.numerator)) / Decimal(
+            math.gcd(a.denominator, b.denominator)
+        )
+        qty = em.round_to(qty, common)
+    baseline = c.get_asset_balance(asset=f["base"])
+    baseline = em.D(baseline["free"]) + em.D(baseline["locked"])
+    loss = risk_amount(qty, price, stop, fee)
+    spread, depth = market_liquidity(symbol, qty * price, enforce=True)
+    half = em.round_to(qty * (1 - fee) / 2, f["step"])
+    rest = em.round_to(qty * (1 - fee), f["step"]) - half
+    plan = {
+        "symbol": symbol,
+        "price": price,
+        "stop": stop,
+        "t1": t1,
+        "t2": t2,
+        "qty": qty,
+        "half": half,
+        "rest": rest,
+        "step": f["step"],
+        "fee_rate": fee,
+        "baseline_base": baseline,
+        "cost": qty * price * (1 + fee),
+        "balance": balance,
+        "loss": loss,
+        "risk_budget": budget,
+        "gain1": half * (t1 - price),
+        "gain2": rest * (t2 - price),
+        "risk_pct": risk / price * 100,
+        "rr": (t1 - price) / risk,
+        "spread_bps": spread,
+        "depth_usdt": depth,
+    }
+    em.preflight(plan, f)
+    return plan
+
+
+def approval_bounds(old, fresh):
+    if old["symbol"] != fresh["symbol"]:
+        return False
+    # Changing quantity, cost, risk or any exit level requires a NEW approval.
+    return (
+        all(em.D(fresh[k]) <= em.D(old[k]) for k in ("qty", "cost", "loss"))
+        and all(em.D(fresh[k]) == em.D(old[k]) for k in ("stop", "t1", "t2"))
+        and abs(em.D(fresh["price"]) / em.D(old["price"]) - 1) <= Decimal(".005")
+    )
+
+
+def execute(plan, *, approval=None):
+    """No entry without explicit displayed bounds supplied by the Telegram handler."""
+    if (
+        approval is None
+        or not approval.get("approved")
+        or not approval.get("approval_id")
+        or time.time() > approval.get("expires_at", 0)
+        or not approval_bounds(approval, plan)
+    ):
+        raise ValueError("Explicit unchanged Telegram approval bounds required")
+    with em.operation_lock():
+        em.require_trade_permission()
+        if em.active_trades():
+            raise RuntimeError("Another tracked trade is active or unresolved")
+        if any(r.get("approval_id") == approval["approval_id"] for r in em.load_trades()):
+            raise ValueError("Approval already consumed")
+        # Rebuild immediately under account operation lock to enforce risk, filters,
+        # balances, commission schedule and approval bounds at transmission time.
+        sig = {
+            "symbol": plan["symbol"],
+            "entry": plan["price"],
+            "stop": plan["stop"],
+            "t1": plan["t1"],
+            "t2": plan["t2"],
+        }
+        fresh = build_plan(sig)
+        if not approval_bounds(approval, fresh):
+            raise ValueError("Market/risk changed; send a new proposal for approval")
+        plan = fresh
+        f = em.symbol_filters(plan["symbol"])
+        rec = em.new_trade(plan, approval=approval)
+        rec["approval_id"] = approval["approval_id"]
+        rec["approved_bounds"] = {k: str(v) for k, v in approval.items()}
+        rec["state"] = "buy_submitting"
+        item = em.intent(rec, "BUY", plan["qty"], "buy")
+        item["price_cap"] = em.fmt(em.round_to(plan["price"], f["tick"]))
+        em.save_trade(rec)
         try:
-            buy = c.order_market_buy(symbol=symbol, quantity=em.fmt(qty), newClientOrderId=cid)
-        except Exception:
-            # Query by the original client ID. Never retry a timed-out market buy.
-            try:
-                buy = c.get_order(symbol=symbol, origClientOrderId=cid)
-            except Exception as e:
-                rec['state'] = 'needs_attention'
+            em.submit_order(rec, item)
+            if item["status"] != "FILLED":
+                # Reconciliation persists partial fills, cancels remaining buy and
+                # unwinds only confirmed ownership. Unknown results never liquidate.
+                em.reconcile_trade(rec)
+            else:
+                rec["state"] = "bought"
                 em.save_trade(rec)
-                em.alert(f'BUY UNKNOWN for {symbol}, client order {cid}: {e}. CHECK BINANCE NOW, DO NOT RE-RUN.')
-                raise RuntimeError('Unknown buy result; manual reconciliation required')
-        got = em.D(buy.get('executedQty') or '0')
-        quote = em.D(buy.get('cummulativeQuoteQty') or '0')
-        if got <= 0 or quote <= 0:
-            rec['state'] = 'needs_attention'
+                em.submit_protection(
+                    rec, em.inventory(rec), plan["t1"], plan["t2"], plan["stop"], f
+                )
+        except Exception as error:
+            rec["state"] = "needs_attention"
             em.save_trade(rec)
-            raise RuntimeError('Market buy not confirmed filled: inspect order history')
-        avg = quote / got
-        if buy.get('status') != 'FILLED':
-            rec['state'] = 'needs_attention'
-            em.save_trade(rec)
-            raise RuntimeError('Partial/incomplete market buy; manual reconciliation required')
-        rec.update(state='bought', buy_order_id=buy['orderId'], bought_qty=str(got),
-                   bought_quote=str(quote), bought_avg=str(avg), filters_step=str(f['step']))
-        em.save_trade(rec)
-        # An OCO requires stop < live ticker < target. Rapid slippage might invalidate it.
-        free_base = em.D(c.get_asset_balance(asset=f['base'])['free'])
-        fees_base = em.D('0')
-        fills = buy.get('fills') or []
-        for fill in fills:
-            if fill.get('commissionAsset') == f['base']:
-                fees_base += em.D(fill['commission'])
-        safe_sell = em.round_to(min(free_base, got - fees_base), f['step'])
-        rec['sell_qty'] = str(safe_sell)
-        em.save_trade(rec)
-        if safe_sell <= 0:
-            raise RuntimeError('No sellable base asset after buy fees')
-        em.submit_protection(rec, safe_sell, plan['t1'], plan['t2'], plan['stop'], f)
-        em.alert(f'BOUGHT {symbol} {got} @ {avg}; 2 OCOs confirmed on Binance. '
-                 'Stops remain at ORIGINAL levels after TP1; no automatic unsafe cancel/replace.')
-        em.monitor_trade(rec)
-        return rec
-    except Exception as e:
-        if rec.get('state') in ('intent', 'buy_submitting', 'bought', 'protection_submitting'):
-            rec['state'] = 'needs_attention'
-            em.save_trade(rec)
-            # Sell ONLY unlocked balance; leave any surviving protective OCO untouched.
-            # Never sell if buy outcome itself is uncertain.
-            if rec.get('bought_qty'):
-                try:
-                    em.emergency_sell_free(symbol, rec.get('sell_qty', rec['bought_qty']), f)
-                except Exception as e2:
-                    em.alert(f'EMERGENCY sell could not be confirmed: {e2}.')
-        em.alert(f'TRADE NEEDS MANUAL RECONCILIATION {symbol}: {e}. New buys blocked.')
-        raise
+            em.alert(
+                safety.safe_error(error)
+                + ". Durable recovery will reconcile before any further write."
+            )
+        # Release the account operation lock while monitoring; active journal blocks entries.
+    em.monitor_trade(rec)
+    return rec
