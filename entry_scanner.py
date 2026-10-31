@@ -284,7 +284,7 @@ def build_msg(s, note):
         f"Target 1 {fmt(s['t1'])} (1.5R) | Target 2 {fmt(s['t2'])} (2.5R)\n"
         f"RSI {s['rsi']:.0f} | 24h {s['chg24']:+.1f}%{size}\n{note}\n"
         f"Place the stop/OCO the moment you buy. Skip it if price already moved >1% from entry.\n"
-        f"https://www.binance.com/en/trade/{base}_USDT\n\n{BRANDING}"
+        f"https://www.binance.com/en/trade/{base}_USDT"
     )
 
 
@@ -317,7 +317,7 @@ def main():
     if a.once:
         scan()
         return
-    send("Entry scanner started. Alerts only, no trading.")
+    send(f"{BRANDING}\n\nEntry scanner started. Alerts only, no trading.")
     while True:
         try:
             scan()

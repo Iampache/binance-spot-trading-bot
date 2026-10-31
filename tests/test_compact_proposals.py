@@ -107,3 +107,23 @@ def test_help_lists_supported_commands_and_cancel_boundary(sim, monkeypatch, com
     assert "STOP TP1 TP2" in text and "ENTRY STOP TP1 TP2" in text
     assert "one active/unresolved trade maximum" in text
     assert not sim.writes
+
+
+def test_identity_is_only_in_startup_not_routine_telegram_output(sim, monkeypatch):
+    from branding import BRANDING
+
+    p = ta.build_plan(sig())
+    startup = tg.startup_text()
+    assert BRANDING in startup and tg.mode_label() in startup
+    messages = []
+    monkeypatch.setattr(tg, "say", lambda text, **kw: messages.append(text))
+    tg.handle_message({"chat": {"id": tg.CHAT_ID}, "from": {"id": tg.CHAT_ID}, "text": "/status"})
+    texts = [
+        tg.proposal_text(sig(), p, ""),
+        tg.proposal_details_text(sig(), p, ""),
+        tg.candidate_card("FOOUSDT", sig(), "Blocked", "Active trade", ""),
+        *messages,
+    ]
+    for text in texts:
+        assert "LIVE - REAL MONEY" not in text and "TESTNET" not in text
+        assert "Fazil" not in text and "Git:" not in text and "TRBT v" not in text

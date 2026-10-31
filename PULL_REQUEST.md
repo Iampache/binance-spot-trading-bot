@@ -67,3 +67,10 @@ A persistent notification outbox retries failed Telegram delivery, including aft
 restart, independently of exchange execution. BNB reference valuation is explicit;
 missing evidence does not produce a fabricated final result. Delivery is at least
 once, so an acceptance/acknowledgement crash can duplicate the same trade reference.
+
+Telegram narration follow-up: full identity/mode notice is confined to startup;
+routine messages omit repeated headers. Verified exits name TP1, TP2, stop fill,
+explicit close or actual unprotected-inventory recovery, distinguishing partial
+fills from completed orders. Generic emergency wording is replaced by verified
+result reports; recovery sales cannot be mislabeled as profitable target hits.
+Pending unsent result notifications refresh their rendering after upgrade.

@@ -417,3 +417,22 @@ with `TRBT v1.0.0 | Fazil` as a short footer. The large branding/Git header and
 repeated candidate/status headings are omitted from these cards. Full identity
 remains in startup output and proposal Details. SHOW PR uses the same compact
 candidate snapshot. Console diagnostics and execution policy are unchanged.
+
+## Startup-only identity and execution narration
+
+The assistant's startup welcome contains the full branding, Git URL and live/testnet
+mode notice. Routine proposals, Details, check cards, candidate alerts, /status and
+exit reports omit repeated identity/mode headers. Console startup still identifies
+the environment. The standalone alert-only scanner also keeps branding in its
+startup announcement rather than every candidate. Existing Telegram history is
+not edited; these formats apply to new messages after updating and restarting.
+
+Exit reports identify verified Take Profit-1, Take Profit-2 or stop-loss fills,
+and distinguish partial fills from completed order execution. Confirmed recovery
+market sells are never relabeled as target hits. New recovery intentions save
+whether they were an explicit position close or an exit of unprotected inventory;
+the latter is reported as an emergency exit. Older records without that reason
+retain a generic recovery-sale label where the cause is unknown. The old generic
+“Emergency exit reconciled” Telegram alert is removed in favor of the verified
+result report, preserving pending fee valuation and remaining-position information.
+Pending, undelivered result messages adopt the new format on retry.

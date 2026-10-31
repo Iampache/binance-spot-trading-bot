@@ -44,7 +44,7 @@ import entry_scanner as sc
 import exit_manager as em
 import safety
 import trade_assistant as ta
-from branding import BRANDING, VERSION
+from branding import BRANDING
 
 TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
@@ -137,7 +137,7 @@ def proposal_text(sig, p, note):
         "legacy": "Immediate attempt",
     }[mode]
     lines = [
-        f"TRADE PROPOSAL [{mode_label()}]",
+        "TRADE PROPOSAL",
         f"🔵 Ticker: {p['symbol']}",
         f"Type: {kind} | {timing}",
         "🟡 Status: Awaiting approval",
@@ -165,13 +165,13 @@ def proposal_text(sig, p, note):
             lines.append(f"Exceptions: {count} checks overridden — see Details.")
     if "WARNING" in note.upper() or "downtrend" in note.lower():
         lines.append("Scanner warning — see Details.")
-    lines += [f"Expires in {APPROVAL_TTL // 60} min. Details below.", f"TRBT v{VERSION} | Fazil"]
+    lines += [f"Expires in {APPROVAL_TTL // 60} min. Details below."]
     return "\n".join(lines)
 
 
 def proposal_details_text(sig, p, note):
     lines = [
-        f"TRADE PROPOSAL [{mode_label()}]",
+        "TRADE PROPOSAL",
         f"🔵 {p['symbol']}  |  {sig['setup']}",
         "🟡 Proposal status: AWAITING APPROVAL — no order placed",
         "",
@@ -217,8 +217,6 @@ def proposal_details_text(sig, p, note):
     lines += [
         "",
         f"Expires in {APPROVAL_TTL // 60} min. Approve only after checking the chart.",
-        "",
-        BRANDING,
     ]
     return "\n".join(lines)
 
@@ -376,7 +374,7 @@ def send_check_card(res, title="CHECK", generation=None):
     cid = uuid.uuid4().hex
     pair = f"{res['symbol'][:-4]}/USDT"
     lines = [
-        f"🔵 {title}: {pair}  [{mode_label()}]",
+        f"🔵 {title}: {pair}",
         f"Price {sc.fmt(res['price'])} | 24h {res['chg']:+.1f}% | volume ${res['qv'] / 1e6:.0f}M",
         "",
     ]
@@ -400,7 +398,6 @@ def send_check_card(res, title="CHECK", generation=None):
         ]
     if res["note"]:
         lines += ["", res["note"]]
-    lines += ["", BRANDING]
     text = "\n".join(lines)
     kb = {"inline_keyboard": [row, [{"text": "Cancel", "callback_data": f"CX:{cid}"}]]}
     r = say(text, reply_markup=json.dumps(kb))
@@ -721,7 +718,7 @@ def handle_message(msg):
         show_last_proposal()
     elif low.startswith("/status"):
         try:
-            say(f"[{mode_label()}]\n{em.status_report()}\nPending proposals: {len(pending)}")
+            say(f"{em.status_report()}\nPending proposals: {len(pending)}")
         except Exception as e:
             say(f"Status error: {safe(e)}")
     elif low.startswith(("/help", "/start")):
@@ -766,7 +763,7 @@ def handle_message(msg):
 def candidate_card(symbol, sig, status, reason, note):
     marker = "🔴" if status in ("Blocked", "Not delivered / canceled") else "🟡"
     lines = [
-        f"Potential Candidate Detected [{mode_label()}]",
+        "Potential Candidate Detected",
         f"🔵 Ticker: {symbol}",
         f"{marker} Current status: {status}",
         f"Reason for rejection: {reason}",
@@ -783,7 +780,6 @@ def candidate_card(symbol, sig, status, reason, note):
     lines.append("Preview only; fresh approval required to trade.")
     if note:
         lines.append(note)
-    lines.append(f"TRBT v{VERSION} | Fazil")
     return "\n".join(lines)
 
 
@@ -873,6 +869,13 @@ def scanner_loop():
         em.STOP.wait(900 - (time.time() % 900) + 10)
 
 
+def startup_text():
+    return (
+        f"{BRANDING}\n\n[{mode_label()}]\nAssistant started. "
+        f"{'Scanning every 15 min. ' if AUTO_SCAN else ''}Send /check to check a coin, /help for commands."
+    )
+
+
 # ---------- main ----------
 def _run_main():
     if not TOKEN or not CHAT_ID:
@@ -924,11 +927,8 @@ def _run_main():
         offset = r["result"][-1]["update_id"] + 1
 
     print("[5/5] Telegram connection verified.", flush=True)
+    say(startup_text())
     threading.Thread(target=em.result_notice_loop, daemon=True).start()
-    say(
-        f"Assistant started [{mode_label()}]. "
-        f"{'Scanning every 15 min. ' if AUTO_SCAN else ''}Send /check to check a coin, /help for commands."
-    )
     if AUTO_SCAN:
         threading.Thread(target=scanner_loop, daemon=True).start()
     print(

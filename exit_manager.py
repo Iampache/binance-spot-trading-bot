@@ -1022,10 +1022,12 @@ def emergency_sell_free(symbol, max_qty=None, f=None, *, rec=None):
     price = D(get_client().get_symbol_ticker(symbol=symbol)["price"])
     validate_qty(qty, f, price, market=True)
     item = intent(rec, "SELL", qty, "emergency")
+    item["exit_reason"] = "manual_close" if rec.get("close_requested") else "unprotected_inventory"
+    save_trade(rec)
     submit_order(rec, item)
     if item["status"] not in TERMINAL or item["status"] == "REJECTED":
         raise ex.Uncertain("Emergency exit not confirmed terminal/filled")
-    alert("Emergency exit reconciled; inspect /status for residual inventory")
+    log.info("Bot-owned market exit reconciled; checking remaining inventory")
     return item
 
 
@@ -1124,18 +1126,39 @@ def trade_result_text(rec):
     left = inventory(rec)
     final = rec["state"] == "closed" and rec.get("accounted") and left == 0
     title = "TRADE CLOSED" if final else "PARTIAL EXIT — position still open"
-    purposes = {
-        o["purpose"] for o in rec["orders"] if o["side"] == "SELL" and D(o["executedQty"]) > 0
-    }
-    outcome = ", ".join(
-        {"target": "Take profit", "stop": "Stop loss", "emergency": "Recovery/close"}.get(p, p)
-        for p in sorted(purposes)
-    )
-    lines = [
-        f"{title} [{'TESTNET' if rec['context']['environment'] == 'testnet' else 'LIVE - REAL MONEY'}]",
-        f"Ticker: {rec['symbol']} | Trade: {rec['id'][:8]}",
-        f"Exit: {outcome}",
-    ]
+    lines = [title, f"Ticker: {rec['symbol']} | Trade: {rec['id'][:8]}"]
+    events = []
+    for order in rec["orders"]:
+        if order["side"] != "SELL" or D(order["executedQty"]) <= 0 or not order.get("trades"):
+            continue
+        complete = order["status"] == "FILLED"
+        phrase = "executed successfully" if complete else "partially filled"
+        linked = next(
+            (
+                index
+                for index, item in enumerate(rec["oco"], 1)
+                if order["cid"] in item["order_cids"]
+            ),
+            None,
+        )
+        if order["purpose"] == "target":
+            name = f"Take Profit-{linked}" if linked is not None else "Take profit"
+            event = f"{name} {phrase}."
+        elif order["purpose"] == "stop":
+            event = f"Stop loss {phrase}."
+        elif order["purpose"] == "emergency":
+            reason = order.get("exit_reason")
+            if reason == "manual_close" or (reason is None and rec.get("close_requested")):
+                event = f"Position close {phrase}."
+            elif reason == "unprotected_inventory":
+                event = f"Emergency exit {phrase} — unprotected bot quantity."
+            else:
+                event = f"Recovery sale {phrase}."
+        else:
+            event = f"Sell {phrase}."
+        if event not in events:
+            events.append(event)
+    lines += events
     try:
         pnl = sum((D(e["pnl"]) for e in realized_events(rec)), D(0))
         cost = sum(
@@ -1194,6 +1217,11 @@ def notify_trade_result(rec):
             notice = notices[key]
             if notice.get("sent"):
                 return
+            if notice["text"] != text:
+                notice["text"] = (
+                    text  # Refresh pending pre-update presentation, not execution evidence.
+                )
+                save_trade(latest)
             message = notice["text"]
         if alert(message) is True:
             with operation_lock():

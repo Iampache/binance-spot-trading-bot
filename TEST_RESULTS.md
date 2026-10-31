@@ -355,3 +355,15 @@ the large Git header, preserved market warning, no actionable approval while a
 trade is active, notification preferences, chunking and SHOW PR behavior. Full
 suite remains **271 passed, 3 native Windows skips**, three upstream warnings.
 Ruff/format, Bandit and whitespace checks pass. No live account access or trades.
+
+## Startup-only branding and evidence-based exit narration
+
+Six new regressions cover identity/mode text confined to startup, specific TP1/
+TP2 event names, emergency recovery not reported as a target fill, explicit close
+not described as emergency, partial target execution not described as complete,
+and pending pre-update notifications adopting the new rendering. Existing
+verified net P&L, closure, retry, account-lock and ownership tests remain enforced.
+No production credentials, live exchange access or real trades were used.
+
+Final local result: **277 passed, 3 native Windows skips**, three upstream warnings.
+Ruff/format, Bandit, dependency and whitespace checks pass.
