@@ -417,3 +417,23 @@ Final local result: **310 passed, 3 native Windows skips**, three unsuppressed
 upstream websockets deprecation warnings. Ruff lint/format, Bandit, pip dependency
 and whitespace checks pass. Native Windows verification of this version remains
 pending. No strategy profitability or live-acceptance claim is made.
+
+## Flat-position reconciliation diagnostics (v1.1.1)
+
+Reproduced the user's observable state offline: both exits terminal, no remaining
+bot coins, but historical BNB fee reference unavailable. Recovery correctly keeps
+the trade unresolved; the previous generic exception hid the reason. Fixed-code
+messages now explain this case and persist its safe reason for status, while
+formatting decimal zero normally. No valuation window, daily-risk gate, ownership
+or closure check was weakened.
+
+Seven new regressions verify the flat/missing-reference state, no further sells
+or buys, new-entry blocking until valid fee evidence returns, normal final closure
+once it does, distinct truncation reasons, private exception text never accessed,
+invalid reason-code values rejected and SDK exceptions unable to inject reasons.
+This reproduces a possible failure path, not proof of the user's live cause; the
+updated diagnostic response is needed to identify their actual remaining blocker.
+
+Final local result: **317 passed, 3 native Windows skips**, three upstream
+websockets warnings. Ruff/format, Bandit, dependency and whitespace checks pass.
+No live account access or real trades were performed.

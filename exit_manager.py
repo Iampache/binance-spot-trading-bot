@@ -520,7 +520,10 @@ def preflight(plan, f):
 def trades_for(order, symbol):
     rows = get_client().get_my_trades(symbol=symbol, orderId=order["orderId"], limit=1000)
     if len(rows) >= 1000:
-        raise ex.Uncertain("Execution pagination requires manual reconciliation")
+        raise ex.Uncertain(
+            "Execution pagination requires manual reconciliation",
+            reason_code="EXECUTION_HISTORY_TRUNCATED",
+        )
     seen = set()
     total = D(0)
     cleaned = []
@@ -556,9 +559,14 @@ def trades_for(order, symbol):
             }
         )
     if sum((D(row["quoteQty"]) for row in cleaned), D(0)) != D(order["cummulativeQuoteQty"]):
-        raise ex.Uncertain("Execution quote totals do not reconcile")
+        raise ex.Uncertain(
+            "Execution quote totals do not reconcile", reason_code="EXECUTION_TOTALS_MISMATCH"
+        )
     if total != D(order["executedQty"]):
-        raise ex.Uncertain("Execution history incomplete; no liquidation authorized")
+        raise ex.Uncertain(
+            "Execution history incomplete; no liquidation authorized",
+            reason_code="EXECUTION_HISTORY_INCOMPLETE",
+        )
     return cleaned
 
 
@@ -583,7 +591,7 @@ def refresh_order(rec, item):
         "PENDING_NEW",
         "PENDING_CANCEL",
     }:
-        raise ex.Uncertain("Unsupported order state")
+        raise ex.Uncertain("Unsupported order state", reason_code="ORDER_STATE_UNSUPPORTED")
     expected_type = {
         "buy": "LIMIT",
         "target": "LIMIT_MAKER",
@@ -737,7 +745,7 @@ def refresh_lists(rec):
             raise ex.OwnershipError("OCO leg identity mismatch")
         item["orderListId"] = result["orderListId"]
         if result["listOrderStatus"] not in ("EXECUTING", "ALL_DONE"):
-            raise ex.Uncertain("Unsupported OCO list state")
+            raise ex.Uncertain("Unsupported OCO list state", reason_code="ORDER_STATE_UNSUPPORTED")
         item["list_status"] = result["listOrderStatus"]
         for report in reports:
             order = next((o for o in rec["orders"] if o["cid"] == report["clientOrderId"]), None)
@@ -868,8 +876,12 @@ def bnb_fee_reference(fill_time):
     rows = get_client().get_aggregate_trades(
         symbol="BNBUSDT", startTime=fill_time - 1000, endTime=fill_time, limit=1000
     )
-    if not rows or len(rows) >= 1000:
-        raise ex.Uncertain("BNB fee reference history missing or truncated")
+    if not rows:
+        raise ex.Uncertain("BNB fee reference history missing", reason_code="BNB_REFERENCE_MISSING")
+    if len(rows) >= 1000:
+        raise ex.Uncertain(
+            "BNB fee reference history truncated", reason_code="BNB_REFERENCE_TRUNCATED"
+        )
     seen = set()
     for row in rows:
         if (
@@ -879,7 +891,9 @@ def bnb_fee_reference(fill_time):
             or not fill_time - 1000 <= row["T"] <= fill_time
             or D(row["p"]) <= 0
         ):
-            raise ex.Uncertain("Invalid BNB fee reference history")
+            raise ex.Uncertain(
+                "Invalid BNB fee reference history", reason_code="BNB_REFERENCE_INVALID"
+            )
         seen.add(row["a"])
     last = max(rows, key=lambda row: (row["T"], row["a"]))
     return {
@@ -906,7 +920,10 @@ def attach_fee_valuations(rec):
             if row["commissionAsset"] != "BNB" or not (
                 ALLOW_BNB_FEES or rec["plan"].get("bnb_fee_support") == "True"
             ):
-                raise ex.Uncertain("Third-asset commission needs enabled, supported USDT valuation")
+                raise ex.Uncertain(
+                    "Third-asset commission needs enabled, supported USDT valuation",
+                    reason_code="FEE_ASSET_UNSUPPORTED",
+                )
             timestamp = int(row["time"])
             if timestamp not in references:
                 references[timestamp] = bnb_fee_reference(timestamp)
@@ -931,7 +948,10 @@ def fee_in_quote(row, base):
         or not int(row["time"]) - 1000 <= reference["time"] <= int(row["time"])
         or D(reference.get("price", 0)) <= 0
     ):
-        raise ex.Uncertain("Third-asset commission reference missing or invalid")
+        raise ex.Uncertain(
+            "Third-asset commission reference missing or invalid",
+            reason_code="FEE_VALUATION_PENDING",
+        )
     return fee * D(reference["price"])
 
 
@@ -1254,7 +1274,7 @@ def result_notice_loop():
         STOP.wait(30)
 
 
-def mark_attention(rec):
+def mark_attention(rec, error=None):
     with operation_lock():
         latest = next(r for r in load_trades() if r["id"] == rec["id"])
         rec.clear()
@@ -1266,6 +1286,9 @@ def mark_attention(rec):
             return
         if rec["state"] != "closed":
             rec["state"] = "needs_attention"
+            if error is not None:
+                code = error.reason_code if isinstance(error, safety.RecoveryError) else None
+                rec["recovery_reason_code"] = code or "RECONCILIATION_PENDING"
             save_trade(rec)
 
 
@@ -1279,7 +1302,7 @@ def monitor_trade(rec, max_checks=None):
         except Exception as error:
             failures += 1
             try:
-                mark_attention(rec)
+                mark_attention(rec, error)
             except Exception:
                 log.error("Journal update failed; existing evidence preserved and entries blocked")
             if failures == 1 or failures % 12 == 0:
@@ -1319,7 +1342,7 @@ def recover_trades():
             reconcile_trade(rec)
         except Exception as error:
             try:
-                mark_attention(rec)
+                mark_attention(rec, error)
             except Exception:
                 log.error(
                     "Recovery journal update failed; existing evidence preserved and entries blocked"
@@ -1403,8 +1426,18 @@ def status_report():
                     continue
                 refresh(rec)
                 lines.append(
-                    f"{rec['symbol']}: {rec['state']}; bot remaining {inventory(rec)}; stop coverage {coverage(rec)}"
+                    f"{rec['symbol']}: {rec['state']}; bot remaining {fmt(inventory(rec))}; stop coverage {fmt(coverage(rec))}"
                 )
+                if rec["state"] == "needs_attention":
+                    if inventory(rec) == 0:
+                        lines.append(
+                            "Bot quantity is zero; execution/fee reconciliation is still pending."
+                        )
+                    reason = safety.reconciliation_reason(rec.get("recovery_reason_code"))
+                    if reason:
+                        lines.append(
+                            f"Reconciliation reason [{rec['recovery_reason_code']}]: {reason}"
+                        )
             except Exception as error:
                 lines.append(
                     f"{rec['symbol']}: {rec['state']}; coverage UNKNOWN; {safety.safe_error(error)}"

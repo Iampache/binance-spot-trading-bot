@@ -485,3 +485,24 @@ an explicitly illustrative format example. Four-number direct entry remains
 compatible with the existing watch flow. Presets remain human-approved example
 levels, not a trading recommendation. Final manual-risk disclosures and explicit
 approval are preserved; buttons alone never authorize a purchase.
+
+## Zero quantity with needs_attention (v1.1.1 diagnostics)
+
+No open exchange orders and zero recorded bot inventory do not by themselves
+finalize a trade. Recovery still verifies terminal orders, execution history and
+commission valuation before closing the journal and calculating daily realized
+loss. Missing historical BNB reference data is one possible accounting blocker;
+this state does not authorize selling more coins, assuming zero fees or resetting
+state. Never delete a journal to bypass the gate.
+
+After a recovery failure, `/status` now identifies zero bot quantity separately
+from unfinished accounting and displays a fixed diagnostic reason when available:
+BNB reference missing/truncated/invalid, unsupported fee valuation, execution
+history incomplete/truncated, or totals/state mismatch. Monitor messages expose
+only approved fixed reasons and numeric API metadata, never raw exception text or
+credentials. Status formats zero normally rather than as `0E-8`.
+
+These diagnostics do not widen the existing 1-second BNB valuation policy or
+force a trade closed. When valid evidence becomes available, normal recovery
+finishes accounting and delivers the final net result. A generic diagnostic still
+requires investigation; no live cause is inferred solely from the account balance.

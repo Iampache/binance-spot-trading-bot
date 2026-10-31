@@ -30,7 +30,7 @@ explicit fill-time USDT reference valuation; missing fee evidence blocks final P
 not protection/liquidation. Pending approval cancellation never removes existing
 OCOs. Active closing remains available through the existing confirmed CLI path.
 
-Validation: **310 passed, 3 native Windows skips**, three upstream deprecation
+Validation: **317 passed, 3 native Windows skips**, three upstream deprecation
 warnings; Ruff/format, Bandit, pip dependency and whitespace checks pass. Tests use
 actual SDK transport simulations with sockets/HTTP forbidden.
 See TEST_RESULTS.md for exact totals, SECURITY_REVIEW.md for the implementation
@@ -42,3 +42,9 @@ Windows CI/user results and an independent human review remain separate checks.
 The ruleset has no historical out-of-sample profitability or paper/live validation.
 Buy plus protection is non-atomic; outages, gaps, slippage, dust and concurrent
 account activity remain risks. No merge into main is performed.
+
+Flat-position recovery diagnostics now distinguish zero bot inventory from pending
+execution/commission accounting. Fixed allow-listed reason codes expose missing
+BNB references, history truncation/incompleteness or reconciliation mismatches
+without serializing private exception data. No journal reset, fee assumption,
+valuation-window widening or bypass of the daily-loss gate is introduced.
