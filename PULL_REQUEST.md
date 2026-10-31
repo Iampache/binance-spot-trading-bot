@@ -1,87 +1,53 @@
-# Harden Spot lifecycles and add approved algorithmic trade setups
+# Harden Spot recovery and add approved Telegram setups and token discovery
 
-Partial/uncertain orders and interrupted OCO placement could lose track of acquired
-coins or expose unrelated holdings. This change pins and verifies python-binance
-1.0.37 interfaces, journals identities before requests, reconciles fills and fees,
-isolates account/environment state, and preserves confirmed ownership through
-restart, cancellation and emergency recovery. Cross-platform account locks prevent
-duplicate instances. Entries use price-capped IOC orders and immutable single-use
-Telegram approvals; two OCOs protect confirmed inventory. Uncertain outcomes are
-never blindly retried, and unresolved inventory blocks new buys.
+Interrupted buys, uncertain responses and partial OCO placement could lose track
+of acquired coins. The branch journals order identities before requests,
+reconciles fills and fees, isolates account/environment state, and recovers owned
+inventory after restart. Price-capped IOC entries and two protective OCOs retain
+single-use Telegram approval bounds. Uncertain outcomes are never blindly retried;
+unresolved inventory blocks new buys. Cross-platform locks prevent duplicate
+instances, and BNB fees have evidence-backed historical reference valuation.
 
-Policy remains Spot only, 10M USDT minimum volume, 1% automatic risk, 12 USDT maximum
-position, one active/unresolved trade and 3 USDT daily loss threshold. Explicit
-manual approvals retain the owner-authorized strategy/liquidity and account-risk
-exceptions; hard caps, exchange validity, ownership and protection remain required.
-Trades that cannot fit two valid OCO quantities are explained and skipped.
+Telegram now offers Manual (all prices), Assisted (bot entry/SL, user targets),
+and Auto Setup (all calculated levels). Closed-candle trend, ATR, RSI, volume and
+confirmed resistance inform algorithm levels; they are revalidated before entry
+without moving approved exits. Per the owner's explicit choice, v2 treats BTC
+weakness as a visible advisory instead of v1's direction veto. The coin's own
+trend/setup, net fee-reserved reward/risk and all other normal checks remain.
+An occupied trade slot is reported before algorithm analysis or manual input.
 
-Telegram offers **Manual** (all four prices), **Assisted** (bot entry/SL, user
-profit targets), and **Auto Setup** (all algorithm-generated levels). Every mode
-still requires approval. The new on-demand ruleset uses closed candles, 1h trend,
-BTC regime, ATR/RSI/volume and confirmed resistance; it validates fee-reserved risk
-and rejects stale market conditions rather than moving approved exits. It cannot
-use manual risk exceptions. The fixed preset is removed; the background scanner
-strategy remains unchanged. No trained AI or profitability claim is introduced.
+The new read-only /discover menu ranks High Volume and Top Gainers using public
+Spot metadata and rolling 24h tickers. Up to five active USDT Spot/OCO pairs with
+at least 10M turnover are shown with Binance links, fresh Check setup and existing
+three-mode Trading options. Extreme moves carry automatic-entry-limit flags.
+New Listings is explicitly unavailable until a verified listing source exists;
+these filtered rankings do not claim exact Binance dashboard parity. Discovery
+never grants approval, accesses an account or creates orders. It can be browsed
+while another position is active. Sender/chat checks, tracked message IDs,
+expiry and cancel generations protect the ephemeral controls.
 
-Compact proposals/Details, candidate previews, SHOW PR, complete help, startup-only
-identity and verified partial/final net result notifications improve visibility.
-Persistent result delivery retries do not submit exchange orders. BNB fees retain
-explicit fill-time USDT reference valuation; missing fee evidence blocks final P&L,
-not protection/liquidation. Pending approval cancellation never removes existing
-OCOs. Active closing remains available through the existing confirmed CLI path.
+Normal policy remains Spot USDT, 10M minimum volume, 1% risk, 12 USDT maximum
+position, one active/unresolved trade and a 3 USDT daily loss threshold. Explicit
+manual approvals retain owner-authorized strategy/liquidity and account-risk
+exceptions; hard caps, exchange rules, ownership and OCO protection remain.
+Every new buy still requires final approval. Strategy identity is now
+atr-structure-v2, with fresh proposals required after upgrading; existing
+protected trades retain their journal and exchange protection.
 
-Validation: **379 passed, 3 native Windows skips**, three upstream deprecation
-warnings; Ruff/format, Bandit, pip dependency and whitespace checks pass. Tests use
-actual SDK transport simulations with sockets/HTTP forbidden.
-See TEST_RESULTS.md for exact totals, SECURITY_REVIEW.md for the implementation
-review and ALGORITHM_DESIGN.md for formulas, public Binance/Freqtrade/OctoBot
-references and strategy-validation limits. No production credentials, Binance
-integration, real trades or third-party bot account connections were used. Native
-Windows CI/user results and an independent human review remain separate checks.
+Compact proposals/Details, linked tickers, pair-specific blockers, correct
+Cancel/expiry keyboards, startup-only branding and persistent partial/final net
+result notifications improve visibility. Result delivery retries never submit
+exchange orders. Pending UI cancellation leaves protective OCOs active.
 
-The ruleset has no historical out-of-sample profitability or paper/live validation.
-Buy plus protection is non-atomic; outages, gaps, slippage, dust and concurrent
-account activity remain risks. No merge into main is performed.
+Validation: **425 passed, 3 native Windows skips**, three upstream deprecation
+warnings. Ruff lint/format, Bandit, pip dependencies and whitespace checks pass.
+Tests use synthetic data behind the pinned SDK transport, with sockets/HTTP
+forbidden. No production credentials, live Binance, Telegram service or real
+trades were used. TEST_RESULTS.md records regressions; SECURITY_REVIEW.md records
+the implementation review; ALGORITHM_DESIGN.md documents formulas and sources.
 
-Flat-position recovery diagnostics now distinguish zero bot inventory from pending
-execution/commission accounting. Fixed allow-listed reason codes expose missing
-BNB references, history truncation/incompleteness or reconciliation mismatches
-without serializing private exception data. No journal reset, fee assumption,
-valuation-window widening or bypass of the daily-loss gate is introduced.
-
-
-The confirmed BNB-reference blocker now has a bounded historical-candle fallback
-when the one-second aggregate window is genuinely empty. It persists/revalidates
-the containing closed minute's OHLCV and uses its high to value actual BNB fees.
-P&L explicitly identifies this conservative market reference; Binance's private
-conversion is not claimed. Unknown, malformed, truncated or missing evidence still
-blocks, while proven flat trades can close without another exchange order.
-
-Scanner-generated targets now compile against the original reference entry and
-rounded stop with upward tick rounding, preserving the intended 1.5R/2.5R without
-chasing a higher quote. Pullback resistance ceilings and approved/manual exits
-remain fixed. Distinct stop-distance and reward/risk diagnostics show the actual
-checked prices and required TP1; genuinely insufficient reward still blocks.
-
-Ticker-only /scan is now an alias for the existing single-coin /check flow. Both
-normalize ZRO to ZROUSDT; prompt/help and offline authorization/cancellation
-regressions cover the alias without changing trade execution or approval gates.
-
-Chart cards now distinguish a setup from completed execution checks and label
-their price as a reference. Regression cases demonstrate that the same normal
-risk planner can reject 6.998 and accept 6.995 with identical exits; on-demand
-scanning never implies a Manual risk override. No thresholds are loosened.
-
-
-Compact tickers now carry validated Binance Spot text-link entities, including
-UTF-16 emoji offsets, with web previews disabled and no rich-text mode changes.
-The existing durable trade gate names the actual pair and distinguishes a same-
-pair position from another occupied slot, a pending entry/watch or reconciliation.
-No proposal is falsely labeled an active trade, and no blocking checks are removed.
-
-
-Cancel/expiry now remove the current selector's keyboard and invalidate its
-callback/input state. Replaced parent messages cannot invoke the new menu;
-successful proposal delivery retires the selector while preserving the new
-approval controls. UI cancellation leaves existing protected positions and durable
-recovery untouched. The candidate heading is Potential Token Detected.
+The strategy has no out-of-sample profitability or paper/live validation. Buy and
+protection remain non-atomic; gaps, outages, slippage and dust remain possible.
+Removing the BTC veto is an owner-requested policy change, not evidence of a
+better strategy. Native Windows and an independent human review remain separate
+checks. No merge into main is performed.

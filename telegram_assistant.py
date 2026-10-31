@@ -21,7 +21,7 @@ Safeguards (apply to ALL paths, including manual):
   - Watch restart/read failure cancels authorization; submitted buys always retain recovery.
   - If protection fails, confirmed bot-owned free inventory is reconciled before an exit attempt
 
-Other commands: /status  /cancel  /help
+Other commands: /discover  /status  /cancel  /help
 Env extras: AUTO_SCAN=false  -> disable automatic proposals (keep only /check)
 
 Files needed in the SAME folder: entry_scanner.py, exit_manager.py, trade_assistant.py,
@@ -43,10 +43,11 @@ from binance.exceptions import BinanceAPIException
 import algorithmic_planner as algo
 import entry_scanner as sc
 import exit_manager as em
+import market_discovery as discovery
 import safety
 import trade_assistant as ta
 from branding import BRANDING
-from telegram_formatting import ticker_link_options
+from telegram_formatting import spot_url, ticker_link_options
 
 TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
@@ -61,6 +62,7 @@ API = f"https://api.telegram.org/bot{TOKEN}"
 last_preview = {}  # read-only snapshot for SHOW PR; never an approval source
 pending = {}  # proposal id -> dict
 checks = {}  # /check card id -> dict
+discovery_views = {}  # ephemeral read-only discovery menus/results
 state = {}  # conversation state for /check and manual entry
 recheck_timers = set()
 proposal_generation = 0
@@ -71,6 +73,8 @@ trade_lock = threading.Lock()  # one live trade being executed/managed at a time
 HELP = (
     "TRBT | Commands\n\n"
     "/help or /start — show this guide\n"
+    "/discover — browse High Volume / Top Gainers; New Listings needs a verified source\n"
+    "/discover volume or /discover gainers — open a ranking directly\n"
     "/check or /scan — choose a coin\n"
     "/check ZRO or /scan ZRO — USDT is added automatically\n"
     "Full pairs such as ZROUSDT or ZRO/USDT also work.\n"
@@ -85,6 +89,7 @@ HELP = (
     "Assisted — bot suggests entry/SL; type TP1 TP2\n"
     "Auto Setup — bot calculates all levels; you still approve\n"
     "Algorithm modes enforce normal risk limits and may skip unsuitable setups.\n"
+    "BTC weakness is advisory; the coin's own trend/setup checks still apply.\n"
     "STOP (or EXIT) means the stop-loss trigger, not a guaranteed execution price.\n\n"
     "Proposal buttons: Details (full explanation), Approve or Reject. "
     "Buying always needs approval; one active/unresolved trade maximum."
@@ -197,6 +202,8 @@ def proposal_text(sig, p, note):
             lines.append(f"Exceptions: {count} checks overridden — see Details.")
     if p.get("algorithmic"):
         lines.append("Data-based suggestion; normal risk limits apply. No guaranteed outcome.")
+        if p.get("market_warning"):
+            lines.append(p["market_warning"])
     if "WARNING" in note.upper() or "downtrend" in note.lower():
         lines.append("Scanner warning — see Details.")
     lines += [f"Expires in {APPROVAL_TTL // 60} min. Details below."]
@@ -237,6 +244,8 @@ def proposal_details_text(sig, p, note):
             p["analysis_summary"],
             "Closed candles only; setup and risk rechecked before submission. Approved levels stay fixed.",
         ]
+        if p.get("market_warning"):
+            lines.append(p["market_warning"])
     if note:
         lines.append(note)
     if p.get("bnb_discount"):
@@ -331,6 +340,10 @@ def expire_pending():
         edit(item, "EXPIRED. No order placed.")
     if state and now - state.get("t", now) > 600:
         state.clear()
+    for vid, view in list(discovery_views.items()):
+        if now - view["created"] > CHECK_TTL:
+            discovery_views.pop(vid, None)
+            edit(view, "EXPIRED. Send /discover again.")
     for cid, card in list(checks.items()):
         if now - card["created"] > CHECK_TTL:
             checks.pop(cid, None)
@@ -534,6 +547,12 @@ def handle_check_callback(cb, action, cid):
         recheck_timers.add(timer)
         timer.start()
     elif action in ("CN", "CW", "CQ"):
+        try:
+            ta.ensure_free_trade_slot(res["symbol"])
+        except ta.ActiveTradeError as error:
+            ack("An existing trade blocks this entry.")
+            say("NOT AVAILABLE: " + safety.redact(str(error)))
+            return
         ack("Review the calculated proposal before approving.")
         state.clear()
         if action == "CQ":
@@ -557,6 +576,11 @@ def handle_check_callback(cb, action, cid):
                 "Send TWO profit-target prices: TP1 TP2.\n"
                 "Targets must satisfy risk/reward and resistance checks. "
                 "The final entry quote may update before you approve. /cancel to stop."
+                + (
+                    "\n\n" + suggestion["market_warning"]
+                    if suggestion.get("market_warning")
+                    else ""
+                )
             )
         else:
             state.update(
@@ -574,59 +598,80 @@ def handle_check_callback(cb, action, cid):
             item,
             "Choose manual or algorithm-generated levels. Final approval is always required.",
         )
-        state.clear()
-        state.update(
-            step="manual",
-            symbol=res["symbol"],
-            status=res["status"],
-            entry_mode="watch",
-            menu_id=cid,
-            t=time.time(),
-        )
-        text = (
-            f"Trading options | {res['symbol'][:-4]}/USDT\n"
-            f"Last checked price: {sc.fmt(res['price'])}\n\n"
-            "Manual — you choose Entry, SL, TP1 and TP2.\n"
-            "Assisted — the bot suggests entry/SL; you choose TP1/TP2.\n"
-            "Auto Setup — the bot calculates all levels for your approval.\n\n"
-            "Algorithm modes enforce normal liquidity, 1% risk and 3 USDT daily-loss limits. "
-            "Manual mode retains its explicit risk override.\n"
-            "All modes: 12 USDT cap, one active trade, protective OCOs and final approval.\n"
-            "/cancel to stop."
-        )
-        result = say(
-            text,
-            reply_markup=json.dumps(
-                {
-                    "inline_keyboard": [
-                        [{"text": "Manual — set all prices", "callback_data": f"CN:{cid}"}],
-                        [
-                            {
-                                "text": "Assisted — choose profit targets",
-                                "callback_data": f"CW:{cid}",
-                            }
-                        ],
-                        [
-                            {
-                                "text": "Auto Setup — calculate all levels",
-                                "callback_data": f"CQ:{cid}",
-                            }
-                        ],
-                        [{"text": "Cancel", "callback_data": f"CX:{cid}"}],
-                    ]
-                }
-            ),
-        )
+        show_trading_options(res, cid=cid, item=item)
 
-        if result and result.get("ok"):
-            checks[cid] = {**item, "mid": result["result"]["message_id"], "text": text}
-        else:
-            checks.pop(cid, None)
-            state.clear()
+
+def show_trading_options(res, *, cid=None, item=None, generation=None):
+    if generation is None:
+        generation = proposal_generation
+    if generation != proposal_generation:
+        return None
+    cid = cid or uuid.uuid4().hex
+    item = item or {"res": res, "created": time.time()}
+    state.clear()
+    state.update(
+        step="manual",
+        symbol=res["symbol"],
+        status=res["status"],
+        entry_mode="watch",
+        menu_id=cid,
+        t=time.time(),
+    )
+    text = (
+        f"Trading options | {res['symbol'][:-4]}/USDT\n"
+        f"Reference price: {sc.fmt(res['price'])}\n\n"
+        "Manual — you choose Entry, SL, TP1 and TP2.\n"
+        "Assisted — the bot suggests entry/SL; you choose TP1/TP2.\n"
+        "Auto Setup — the bot calculates all levels for your approval.\n\n"
+        "Algorithm modes enforce normal liquidity, 1% risk and 3 USDT daily-loss limits. "
+        "BTC trend is advisory; a weak/downward trend shows a warning. "
+        "Manual mode retains its explicit risk override.\n"
+        "All modes: 12 USDT cap, one active trade, protective OCOs and final approval.\n"
+        "/cancel to stop."
+    )
+    result = say(
+        text,
+        reply_markup=json.dumps(
+            {
+                "inline_keyboard": [
+                    [{"text": "Manual — set all prices", "callback_data": f"CN:{cid}"}],
+                    [
+                        {
+                            "text": "Assisted — choose profit targets",
+                            "callback_data": f"CW:{cid}",
+                        }
+                    ],
+                    [
+                        {
+                            "text": "Auto Setup — calculate all levels",
+                            "callback_data": f"CQ:{cid}",
+                        }
+                    ],
+                    [{"text": "Cancel", "callback_data": f"CX:{cid}"}],
+                ]
+            }
+        ),
+    )
+
+    if result and result.get("ok"):
+        view = {**item, "mid": result["result"]["message_id"], "text": text}
+        with pend_lock:
+            if generation != proposal_generation:
+                if state.get("menu_id") == cid:
+                    state.clear()
+                edit(view, "CANCELLED. This selection can no longer be used.")
+                return None
+            checks[cid] = view
+        return cid
+    checks.pop(cid, None)
+    if state.get("menu_id") == cid:
+        state.clear()
+    return None
 
 
 def prepare_algorithm_proposal(symbol, entry=None):
     try:
+        ta.ensure_free_trade_slot(symbol)
         sig = algo.propose(symbol, entry=entry)
         plan = ta.build_plan(sig)
     except ValueError as error:
@@ -776,6 +821,9 @@ def handle_callback(cb):
     if str(sender) != str(CHAT_ID) or str(chat) != str(CHAT_ID):
         return  # ignore strangers completely
     action, _, pid = cb.get("data", "").partition(":")
+    if action.startswith("V"):
+        handle_discovery_callback(cb, action, pid)
+        return
     if action.startswith("C"):
         handle_check_callback(cb, action, pid)
         return
@@ -888,8 +936,9 @@ def handle_message(msg):
         state.clear()
         with pend_lock:
             proposal_generation += 1
-            canceled_checks = list(checks.values())
+            canceled_checks = list(checks.values()) + list(discovery_views.values())
             checks.clear()
+            discovery_views.clear()
             canceled = list(pending.values())
             pending.clear()
         for card in canceled_checks:
@@ -908,6 +957,17 @@ def handle_message(msg):
             f"Cancelled {watches} untriggered entry watch(es), pending proposals, manual entry and scheduled rechecks. "
             "Already submitted orders and protective OCOs remain active; /status shows them."
         )
+    elif command == "/discover":
+        state.clear()
+        parts = text.split(None, 1)
+        if len(parts) == 1:
+            send_discovery_menu()
+        elif parts[1].lower() in ("volume", "gainers"):
+            load_discovery_ranking(parts[1].lower(), generation=proposal_generation)
+        elif parts[1].lower() in ("new", "listings"):
+            explain_new_listings()
+        else:
+            say("Use /discover, /discover volume or /discover gainers.")
     elif command in ("/check", "/check_ticker", "/scan"):
         parts = text.split(None, 1)
         state.clear()
@@ -925,7 +985,165 @@ def handle_message(msg):
         handle_manual(text)
 
 
-# ---------- scanner thread ----------
+# ---------- read-only public discovery ----------
+def discovery_buttons(vid):
+    return [
+        [
+            {"text": "High Volume", "callback_data": f"VV:{vid}"},
+            {"text": "Top Gainers", "callback_data": f"VG:{vid}"},
+        ],
+        [{"text": "New Listings", "callback_data": f"VN:{vid}"}],
+        [{"text": "Cancel", "callback_data": f"VX:{vid}"}],
+    ]
+
+
+def register_discovery_view(text, rows, category, *, generation):
+    if generation != proposal_generation:
+        return None
+    vid = uuid.uuid4().hex
+    buttons = []
+    for index, row in enumerate(rows):
+        base = row["symbol"][:-4]
+        label = base if len(base) <= 12 else base[:11] + "…"
+        buttons.append(
+            [
+                {"text": f"{label} · Spot", "url": spot_url(row["symbol"])},
+                {"text": "Check setup", "callback_data": f"VC:{vid}:{index}"},
+                {"text": "Trading options", "callback_data": f"VM:{vid}:{index}"},
+            ]
+        )
+    buttons += discovery_buttons(vid)
+    result = say(text, reply_markup=json.dumps({"inline_keyboard": buttons}))
+    if not result or not result.get("ok"):
+        return None
+    item = {
+        "text": text,
+        "mid": result["result"]["message_id"],
+        "created": time.time(),
+        "rows": rows,
+        "category": category,
+        "generation": generation,
+    }
+    with pend_lock:
+        if generation != proposal_generation:
+            edit(item, "CANCELLED. Send /discover again.")
+            return None
+        discovery_views[vid] = item
+    return vid
+
+
+def send_discovery_menu():
+    return register_discovery_view(
+        "Discover tokens\n\nChoose High Volume or Top Gainers.\n"
+        "USDT Spot only · at least 10M USDT 24h volume · OCO support.\n"
+        "Rankings are for research; setup and execution checks follow.\n"
+        "New Listings requires a verified listing source and is not available yet.",
+        [],
+        "menu",
+        generation=proposal_generation,
+    )
+
+
+def explain_new_listings():
+    say(
+        "New Listings is not available yet: a verified listing source is required. "
+        "The Spot symbol API does not establish an official listing date, and dashboard assets "
+        "may not have a tradable USDT Spot pair. Use High Volume or Top Gainers for now."
+    )
+
+
+def load_discovery_ranking(category, *, generation):
+    try:
+        ranking = discovery.rank_pairs(category)
+    except ValueError as error:
+        say(safety.redact(str(error)) + ". No order submitted.")
+        return None
+    except Exception as error:
+        say("Discovery data unavailable: " + safe(error) + ". Try /discover later.")
+        return None
+    label = "High Volume" if category == "volume" else "Top Gainers"
+    lines = [f"Discover tokens · {label}", "USDT Spot · OCO support · 24h volume ≥10M USDT", ""]
+    for index, row in enumerate(ranking["rows"], 1):
+        lines += [
+            f"{index}. {row['symbol']} · reference price {sc.fmt(row['price'])}",
+            f"24h {row['change']:+.2f}% | volume {row['quote_volume'] / 1000000:.1f}M USDT",
+        ]
+        lines += row["flags"]
+        lines.append("")
+    if not ranking["rows"]:
+        lines.append("No qualifying pairs in this snapshot.")
+    if ranking["invalid_count"]:
+        lines.append(f"Incomplete ticker entries skipped: {ranking['invalid_count']}.")
+    lines += [
+        "Discovery only; no setup/risk approval. Prices can change.",
+        "Use Check setup or Trading options. Every buy still requires approval.",
+    ]
+    return register_discovery_view(
+        "\n".join(lines), ranking["rows"], category, generation=generation
+    )
+
+
+def handle_discovery_callback(cb, action, payload):
+    vid, _, selection = payload.partition(":")
+    item = discovery_views.get(vid)
+
+    def ack(text):
+        tg("answerCallbackQuery", callback_query_id=cb["id"], text=text)
+
+    if not item:
+        clear_callback_keyboard(cb)
+        ack("Expired or canceled. Send /discover again.")
+        return
+    mid = cb.get("message", {}).get("message_id")
+    if type(mid) is int and mid != item["mid"]:
+        clear_callback_keyboard(cb)
+        ack("Use the latest discovery menu.")
+        return
+    if time.time() - item["created"] > CHECK_TTL or item["generation"] != proposal_generation:
+        discovery_views.pop(vid, None)
+        edit(item, "EXPIRED. Send /discover again.")
+        ack("Expired.")
+        return
+    if action == "VN":
+        ack("Verified listing source required.")
+        explain_new_listings()
+        return
+    if action in ("VC", "VM"):
+        if not selection.isdecimal() or not 0 <= int(selection) < len(item["rows"]):
+            ack("Invalid token selection.")
+            return
+        row = item["rows"][int(selection)]
+    elif action not in ("VV", "VG", "VX"):
+        ack("Unknown discovery action.")
+        return
+    discovery_views.pop(vid, None)
+    if action == "VX":
+        ack("Discovery closed.")
+        edit(item, "CANCELLED. Discovery closed; existing trades are unaffected.")
+    elif action in ("VV", "VG"):
+        ack("Loading public Spot rankings...")
+        edit(item, "Loading the selected ranking below.")
+        load_discovery_ranking(
+            "volume" if action == "VV" else "gainers", generation=item["generation"]
+        )
+    elif action == "VC":
+        ack("Checking the latest setup...")
+        edit(item, f"Checking {row['symbol']}; use the new check card below.")
+        run_check(row["symbol"], generation=item["generation"])
+    else:
+        ack("Choose a trading mode, then review the proposal.")
+        edit(item, f"Trading options for {row['symbol']} opened below.")
+        res = {
+            "symbol": row["symbol"],
+            "price": row["price"],
+            "status": "DISCOVERY",
+            "sig": None,
+            "reasons": [],
+            "note": "Discovery ranking; chart setup not checked.",
+        }
+        show_trading_options(res, generation=item["generation"])
+
+
 def candidate_card(symbol, sig, status, reason, note):
     marker = "🔴" if status in ("Blocked", "Not delivered / canceled") else "🟡"
     lines = [
@@ -1044,6 +1262,7 @@ def startup_status():
 def startup_text():
     return (
         f"{BRANDING}\n\n{startup_status()}\n\n"
+        "/discover — browse High Volume and Top Gainers\n"
         "/check COIN — review a trading setup\n"
         "/status — view positions and protection\n"
         "/help — view all commands"

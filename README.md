@@ -2,6 +2,29 @@
 
 A Python-based Binance Spot Trading Assistant with Telegram integration.
 
+## Discover tokens (v1.2.0)
+
+Send `/discover` and choose **High Volume** or **Top Gainers**, or use
+`/discover volume` / `/discover gainers` directly. Each ranking shows up to five
+USDT Spot pairs with reference prices, rolling 24h changes and USDT turnover.
+Each pair has **Spot** (Binance page), **Check setup** (fresh chart analysis), and
+**Trading options** (Manual / Assisted / Auto Setup) buttons.
+
+Discovery uses public `/api/v3/exchangeInfo` and `/api/v3/ticker/24hr` data, with
+no account access or orders. It filters for active Spot trading, OCO/order-type
+support, at least 10M USDT turnover, and the scanner's existing stablecoin and
+leveraged-token suffix exclusions. High Volume ranks USDT turnover; Top Gainers
+ranks positive percentage changes. Extreme moves remain visible with an
+automatic-entry-limit warning. A ranking is research, not an executable setup;
+the chosen mode still runs its existing validation and requires final approval.
+Browsing remains available while another trade occupies the single active slot.
+Cancel/expiry removes the menu controls; `/scan` remains a single-coin check alias.
+
+**New Listings is not available yet.** Its button explains the limitation: the
+Spot symbol API does not establish an official listing date. A verified source
+is required before implementing that ranking. These filtered lists do not claim
+to reproduce Binance's broader dashboard exactly.
+
 ## Algorithmic proposal modes (v1.1.0)
 
 Send `/check COIN` → **3 - Trading options**:
@@ -20,6 +43,17 @@ are on-demand and use closed-candle trend/volatility/volume/structure checks.
 They can reject a setup rather than invent levels. See [ALGORITHM_DESIGN.md](ALGORITHM_DESIGN.md)
 for exact formulas, reviewed Binance/bot references, tests and unverified strategy
 performance. Later development-history sections describe previous UI versions.
+
+As requested in v1.2.0, **BTC weakness is advisory in Assisted and Auto Setup**,
+matching the scanner's warning policy. The algorithm's trend test still uses
+validated closed BTC candles; weak/downward conditions appear in the compact
+proposal and Details, and are refreshed during final validation. The coin's own
+1h uptrend, 15m setup, resistance, fees, liquidity and risk checks remain enforced.
+An active/unresolved trade is reported before algorithm analysis or manual input.
+UNI occupying the slot therefore still blocks a new LINK entry in every mode.
+The strategy identity is now `atr-structure-v2`; old algorithm proposals require
+a fresh calculation and approval. Existing protected trades retain recovery and
+their exchange OCOs.
 
 ## Features
 

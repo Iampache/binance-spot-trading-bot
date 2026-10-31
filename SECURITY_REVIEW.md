@@ -7,6 +7,33 @@ agent, plus independent automated static analysis using Bandit. It is **not an
 independent human or third-party audit**, and is not certification for live trading.
 No Binance account, production credential or Telegram integration was accessed.
 
+## Discovery and owner-requested BTC advisory policy (v1.2.0)
+
+Discovery reads only public exchange metadata and rolling 24h tickers. It does
+not inspect credentials, journals, balances, or order endpoints. Eligible pairs
+must have active Spot USDT trading, OCO/order-type support and 10M turnover.
+Existing stablecoin/suffix exclusions apply; extreme price changes are flagged
+rather than misrepresented as automatically executable. Metadata ambiguity fails
+the ranking; invalid numeric tickers are excluded. No unverified listing dates
+are inferred. Binance links use the existing validated fixed Spot URL builder.
+
+Discovery controls require the configured sender/chat, tracked message ID,
+expiry and cancellation generation. Each actionable click consumes its view;
+Check setup refreshes chart analysis and Trading options reuses the existing
+mode menu. Cancel/expiry retires keyboards and backend state. Rankings never
+become approvals or exchange orders, including while a protected trade is active.
+Normal build-time and locked submission-time checks remain authoritative.
+
+The owner explicitly chose BTC weakness as advisory for Assisted/Auto Setup.
+This intentionally removes v1's BTC-direction veto and may allow more losing
+entries during weak BTC conditions; no performance benefit is established.
+V2 keeps validated BTC evidence and surfaces a current warning on the proposal,
+while preserving symbol trend/setup, net reward/risk, fees, liquidity, daily
+budget, position cap, exchange validity, OCO and explicit approval checks.
+The active-slot precheck now reports an existing trade before algorithm analysis
+or manual input; existing build and submission checks still prevent races.
+Strategy identity changes to atr-structure-v2; protected records need no reset.
+
 ## Original findings
 
 | Finding | Implemented control |

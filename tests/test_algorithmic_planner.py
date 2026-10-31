@@ -125,13 +125,51 @@ def test_bad_or_stale_market_data_never_produces_proposal(sim, market, kind):
     assert not sim.writes
 
 
-@pytest.mark.parametrize("which", ["FOOUSDT", "BTCUSDT"])
-def test_downtrend_in_symbol_or_btc_blocks_algorithm(sim, market, which):
-    rows = market[(which, "1h")]
+def downtrend(market, symbol):
+    rows = market[(symbol, "1h")]
     for i, row in enumerate(rows):
         close = D(110) - D(i) / 20
         row[1:5] = [str(close), str(close + 1), str(close - 1), str(close)]
+
+
+def test_symbol_downtrend_still_blocks_algorithm(sim, market):
+    downtrend(market, "FOOUSDT")
     with pytest.raises(ValueError, match="trend|regime"):
+        ap.propose("FOOUSDT")
+    assert not sim.writes
+
+
+def test_btc_downtrend_is_visible_advisory_with_all_risk_limits(sim, market):
+    downtrend(market, "BTCUSDT")
+    sig = ap.propose("FOOUSDT")
+    plan = ta.build_plan(sig)
+    assert sig["market_warning"] == plan["market_warning"] == ap.BTC_WARNING
+    assert "BTC weak/downward (advisory)" in sig["analysis_summary"]
+    assert "1h/BTC uptrend" not in sig["analysis_summary"]
+    assert ap.BTC_WARNING in tg.proposal_text(sig, plan, "")
+    assert ap.BTC_WARNING in tg.proposal_details_text(sig, plan, "")
+    assert plan["cost"] <= 12 and plan["loss"] <= min(plan["balance"] / 100, D(3))
+    with pytest.raises(ValueError, match="approval"):
+        ta.execute(plan)
+    assert not sim.writes
+
+
+def test_btc_change_during_approval_remains_advisory_and_keeps_approved_exits(
+    sim, market, monkeypatch
+):
+    plan = ta.build_plan(ap.propose("FOOUSDT"))
+    assert not plan["market_warning"]
+    downtrend(market, "BTCUSDT")
+    monkeypatch.setattr(em, "monitor_trade", lambda rec: None)
+    rec = ta.execute(plan, approval=approved(plan))
+    assert rec["state"] == "protected" and em.coverage(rec) >= em.inventory(rec) > 0
+    assert rec["plan"]["market_warning"] == ap.BTC_WARNING
+    assert all(D(rec["plan"][key]) == plan[key] for key in ("stop", "t1", "t2"))
+
+
+def test_missing_btc_evidence_still_blocks_instead_of_inventing_an_advisory(sim, market):
+    market[("BTCUSDT", "1h")].clear()
+    with pytest.raises(ValueError, match="history"):
         ap.propose("FOOUSDT")
     assert not sim.writes
 
@@ -164,6 +202,7 @@ def test_net_reward_risk_includes_full_fee_reserves(sim, market):
 
 @pytest.mark.parametrize("gate", ["volume", "daily_loss", "minimums", "manual_override"])
 def test_algorithm_cannot_bypass_existing_risk_gates(sim, market, monkeypatch, gate):
+    downtrend(market, "BTCUSDT")
     sig = ap.propose("FOOUSDT")
     if gate == "volume":
         sim.response_override = lambda method, path, data: (
@@ -194,6 +233,20 @@ def test_algorithm_full_entry_preserves_metadata_and_protection(sim, market, mon
     assert rec["plan"]["algorithmic"] == "True"
     assert em.coverage(rec) >= em.inventory(rec) > 0
     assert D(rec["plan"]["qty"]) <= p["qty"]
+
+
+def test_protected_v1_record_recovers_after_v2_policy_upgrade(sim, market, monkeypatch):
+    monkeypatch.setattr(em, "monitor_trade", lambda rec: None)
+    plan = ta.build_plan(ap.propose("FOOUSDT"))
+    rec = ta.execute(plan, approval=approved(plan))
+    rec["plan"]["algorithm_version"] = "atr-structure-v1"
+    em.save_trade(rec)
+    quantity, writes = em.inventory(rec), len(sim.writes)
+    em.recover_trades()
+    saved = em.load_trades()[0]
+    assert saved["plan"]["algorithm_version"] == "atr-structure-v1"
+    assert saved["state"] == "protected" and em.inventory(saved) == quantity
+    assert em.coverage(saved) >= quantity > 0 and len(sim.writes) == writes
 
 
 def test_deterioration_between_display_and_approval_never_moves_stop_or_buys(
@@ -267,6 +320,41 @@ def test_auto_setup_calculates_all_levels_but_cannot_purchase_without_approval(
     assert item["plan"]["algorithm_mode"] == "full" and not item["plan"]["manual_override"]
     assert "Auto Setup" in item["text"]
     assert "ATR14" in item["details"]
+
+
+@pytest.mark.parametrize("action", ["CQ", "CW"])
+def test_algorithm_modes_show_btc_warning_without_buying(sim, market, messages, action):
+    downtrend(market, "BTCUSDT")
+    tg.handle_check_callback({"id": "cb"}, action, "test")
+    assert ap.BTC_WARNING in messages[-1][0] and not sim.writes
+    if action == "CQ":
+        assert len(tg.pending) == 1
+    else:
+        assert tg.state["step"] == "algorithm_targets" and not tg.pending
+
+
+@pytest.mark.parametrize("action", ["CN", "CW", "CQ"])
+def test_active_trade_block_comes_before_algorithm_or_manual_input(
+    sim, market, messages, monkeypatch, action
+):
+    monkeypatch.setattr(em, "active_trades", lambda: [{"symbol": "UNIUSDT", "state": "protected"}])
+    monkeypatch.setattr(em, "inventory", lambda rec: D(1))
+
+    def no_analysis(*args, **kwargs):
+        pytest.fail("Occupied slot should be checked before algorithm data is read")
+
+    monkeypatch.setattr(ap, "propose", no_analysis)
+    tg.handle_check_callback({"id": "cb"}, action, "test")
+    assert "UNIUSDT trade is in progress" in messages[-1][0]
+    assert not tg.pending and not tg.state and not sim.writes
+
+
+def test_direct_algorithm_proposal_also_checks_active_slot_first(sim, messages, monkeypatch):
+    monkeypatch.setattr(em, "active_trades", lambda: [{"symbol": "FOOUSDT", "state": "protected"}])
+    monkeypatch.setattr(em, "inventory", lambda rec: D(1))
+    assert not tg.prepare_algorithm_proposal("FOOUSDT")
+    assert "FOOUSDT trade already in progress" in messages[-1][0]
+    assert not tg.pending and not sim.writes
 
 
 def test_assisted_mode_gets_entry_stop_from_algorithm_and_targets_from_user(sim, market, messages):

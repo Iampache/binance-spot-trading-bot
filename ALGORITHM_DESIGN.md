@@ -1,12 +1,12 @@
 # TRBT algorithmic proposal design
 
-Display version: 1.1.0. Strategy identity: `atr-structure-v1`.
+Display version: 1.2.0. Strategy identity: `atr-structure-v2`.
 Reviewed public documentation on 31 October 2026 (Asia/Dubai).
 
 This is a deterministic rules-based proposal generator, not a trained AI model,
 a price prediction, or evidence of positive expected returns. No profitable edge,
 win rate or capital safety has been established by the engineering tests. It can
-correctly reject every current symbol, particularly in a BTC downtrend. Telegram
+correctly reject every current symbol if the coin's own setup fails. Telegram
 approval remains mandatory, as explicitly confirmed by the account owner.
 
 ## User control
@@ -40,9 +40,14 @@ For each calculation request:
    chronology, exact interval and freshness checks reject malformed/stale data.
    Exclude the current unfinished candle, even when its apparent price spikes.
    UTC candle boundaries are the Binance default. No future bar is inspected.
-2. Both symbol and BTC 1h must satisfy close > EMA20 > EMA50, with EMA50 greater
-   than its value five closed bars earlier. This BTC rejection is deliberately
-   stricter than the existing background scanner's informational BTC warning.
+2. The symbol's 1h must satisfy close > EMA20 > EMA50, with EMA50 greater
+   than its value five closed bars earlier. Evaluate the same trend condition on
+   BTC 1h, but treat failure as a visible weak/downward-market **warning**, not a
+   rejection. This owner-requested v2 policy matches the background scanner's
+   advisory role for BTC; the exact trend formulas need not identify identical
+   regimes. Missing/stale/malformed BTC evidence still prevents a proposal.
+   Proposals and Details show the warning, and final validation refreshes it.
+   A BTC trend change alone cannot move the approved entry/exits or risk bounds.
 3. On symbol 15m, compute EMA20, Wilder RSI14, Wilder ATR14, and latest volume
    divided by the average of the preceding 20 closed bars. Require either:
    - Pullback: a low among the last three bars touched EMA20 + 0.3%, the last
@@ -134,6 +139,16 @@ risk budget/minimums, metadata binding, final revalidation, protected fills, and
 persistent watch invalidation. Existing lifecycle/ownership/crash tests also run.
 The mode UI tests prove that Assisted/Auto Setup do not submit orders without a
 separate approval and that cancellation clears unfinished user input.
+V2 regressions separately verify symbol-downtrend rejection, visible advisory BTC
+downtrends, malformed BTC rejection, unchanged remaining risk gates, and a BTC
+regime change between display and approval preserving the approved exits.
+
+Read-only `/discover` rankings use the public Spot symbol and 24h ticker APIs.
+Active Spot USDT/OCO eligibility and 10M turnover precede ranking, independently
+of the chart strategy. High Volume sorts quote turnover; Top Gainers sorts
+positive 24h change. The UI reuses existing chart checks and mode selection;
+discovery creates no proposal, approval, journal or order. New Listings awaits a
+verified source because symbol metadata does not establish official listing age.
 
 No out-of-sample historical backtest, walk-forward profitability study, paper
 trading run or live matching-engine validation was performed. Before relying on

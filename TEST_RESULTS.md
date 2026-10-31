@@ -1,5 +1,10 @@
 # Offline validation results
 
+Latest v1.2.0 result: **425 passed, 3 native Windows skips**, three upstream
+deprecation warnings. Ruff lint/format, Bandit, dependency and whitespace checks
+pass. The sections below retain earlier run history; the latest regression
+details are recorded at the end.
+
 Environment: Linux, Python 3.12.14, python-binance 1.0.37. The original 13 scenarios
 were retained and migrated from an invented exchange interface to the actual SDK
 transport simulator; the old unconditional fake `binance` module was removed.
@@ -525,3 +530,30 @@ Full local result: **379 passed, 3 native Windows skips**, three upstream warnin
 Ruff/format, Bandit, dependency and whitespace checks pass. No live account access,
 Telegram service or real trades were used. Actual Windows execution remains to be
 verified by CI/user; Telegram delivery availability is not guaranteed by mocks.
+
+## Public token discovery and BTC advisory policy (v1.2.0)
+
+Forty-six additional passing cases cover public-only top-five ranking and ties,
+USDT quote turnover versus positive percentage-gainer sorting, Spot/OCO metadata
+eligibility, exact 10M turnover boundary, shared exclusions, extreme-move flags,
+invalid numbers, duplicate identities and rejected queries. UI cases verify
+category navigation, exact Spot links, fresh setup routing, all three modes,
+read-only browsing during a protected trade, active-slot blocking, New Listings
+unavailability, sender/chat authorization, invalid selections, consumed/expired
+controls, cancellation during loading and sanitized upstream failures.
+
+Algorithm cases now distinguish mandatory symbol trend from advisory BTC trend.
+Warnings appear on compact proposals, Details and Assisted prompts; a BTC change
+during approval can proceed only under the existing approval and exit bounds.
+Missing BTC evidence still blocks. Liquidity/volume, daily risk, exchange
+minimums and manual-override exclusions still reject while BTC is bearish.
+Occupied-slot checks precede all three mode selections and direct Auto Setup
+analysis, without exchange writes. Existing restart, coverage, lifecycle and
+approval regressions remain passing. A protected record saved with v1 strategy
+identity recovers under v2 without changing inventory or submitting new orders.
+
+Full local suite: **425 passed, 3 native Windows skips**, three upstream warnings.
+Ruff/format, Bandit, dependency and whitespace checks pass. No real Binance or
+Telegram services, production credentials or real orders were used. Public
+Binance REST documentation was reviewed; no dashboard scraping or proprietary
+listing-date API was introduced. No strategy profitability was measured.

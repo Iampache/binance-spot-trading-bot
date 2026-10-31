@@ -95,6 +95,7 @@ def test_help_lists_supported_commands_and_cancel_boundary(sim, monkeypatch, com
         "/help",
         "/start",
         "/check",
+        "/discover",
         "/scan",
         "/check_ticker",
         "/check-ticker",

@@ -57,6 +57,12 @@ def active_trade_reason(symbol, records):
     return f"{name} trade is in progress; only one active trade is allowed."
 
 
+def ensure_free_trade_slot(symbol, *, watch_id=None):
+    blocking = [record for record in em.active_trades() if not empty_watch(record, watch_id)]
+    if blocking:
+        raise ActiveTradeError(active_trade_reason(symbol, blocking))
+
+
 def scan_candidates():
     note = sc.btc_note()
     candidates = {}
@@ -121,9 +127,7 @@ def build_plan(sig, *, approved_bounds=None, watch_id=None):
     em.require_trade_permission()
     if sc.RISK_PCT != 1 or MAX_POSITION_USDT != 12 or MAX_OPEN_TRADES != 1:
         raise ValueError("Required limits: 1% risk, 12 USDT position, one open trade")
-    blocking = [record for record in em.active_trades() if not empty_watch(record, watch_id)]
-    if blocking:
-        raise ActiveTradeError(active_trade_reason(sig["symbol"], blocking))
+    ensure_free_trade_slot(sig["symbol"], watch_id=watch_id)
     c = em.get_client()
     symbol = sig["symbol"]
     ticker = c.get_ticker(symbol=symbol)
@@ -285,7 +289,7 @@ def build_plan(sig, *, approved_bounds=None, watch_id=None):
         import algorithmic_planner as algo
 
         plan.update({key: sig[key] for key in ALGORITHM_FIELDS})
-        algo.validate_plan(sig, plan)
+        plan["market_warning"] = algo.validate_plan(sig, plan)
     em.preflight(plan, f)
     return plan
 

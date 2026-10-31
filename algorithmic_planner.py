@@ -8,7 +8,8 @@ from decimal import ROUND_CEILING
 
 import exit_manager as em
 
-VERSION = "atr-structure-v1"
+VERSION = "atr-structure-v2"
+BTC_WARNING = "WARNING: BTC 1h trend is weak/downward. Altcoin longs can fail more often."
 D = em.D
 DURATIONS = {"15m": 900_000, "1h": 3_600_000}
 
@@ -98,15 +99,13 @@ def snapshot(symbol):
 
 
 def setup(data):
+    trends = {}
     for key in ("trend", "btc"):
         frame = data[key]
         fast, slow = ema(frame["close"], 20), ema(frame["close"], 50)
-        if not frame["close"][-1] > fast[-1] > slow[-1] > slow[-6]:
-            raise ValueError(
-                "Algorithm: "
-                + ("BTC market regime" if key == "btc" else "1h trend")
-                + " does not support a long entry"
-            )
+        trends[key] = frame["close"][-1] > fast[-1] > slow[-1] > slow[-6]
+    if not trends["trend"]:
+        raise ValueError("Algorithm: 1h trend does not support a long entry")
     frame = data["entry"]
     stats = indicators(frame)
     close, opened = frame["close"][-1], frame["open"][-1]
@@ -129,6 +128,7 @@ def setup(data):
     if not pullback and not breakout:
         raise ValueError("Algorithm: no confirmed pullback/breakout setup")
     stats["setup"] = "Pullback bounce" if pullback else "Volume breakout"
+    stats["market_warning"] = "" if trends["btc"] else BTC_WARNING
     return stats
 
 
@@ -209,7 +209,10 @@ def propose(symbol, *, entry=None):
         "algorithm_mode": mode,
         "analysis_created_at": str(D(data["now_ms"]) / 1000),
         "analysis_candle_close": str(data["entry"]["close_ms"][-1]),
-        "analysis_summary": f"{stats['setup']}; 1h/BTC uptrend; ATR14 {stats['atr']:.6g}; "
+        "market_warning": stats["market_warning"],
+        "analysis_summary": f"{stats['setup']}; symbol 1h uptrend; "
+        f"BTC {'weak/downward (advisory)' if stats['market_warning'] else 'uptrend'}; "
+        f"ATR14 {stats['atr']:.6g}; "
         f"RSI14 {stats['rsi']:.1f}; volume {stats['relative_volume']:.2f}x; "
         f"support {support:.6g}. Targets capped before confirmed resistance, "
         "otherwise 2R/3R projections. No profitability claim.",
@@ -266,3 +269,4 @@ def validate_plan(sig, plan):
         raise ValueError(
             "Algorithm: quantity precision/fee reserves leave no positive target-profit scenario"
         )
+    return stats["market_warning"]
