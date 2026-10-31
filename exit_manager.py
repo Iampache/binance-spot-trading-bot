@@ -1,6 +1,7 @@
 """Durable Spot inventory ledger. Unknown outcomes never authorize another write."""
 
 import argparse
+import copy
 import json
 import logging
 import os
@@ -48,7 +49,9 @@ safety.secure_logging()
 def D(value):
     value = Decimal(str(value))
     if not value.is_finite():
-        raise ValueError("Numeric values must be finite")
+        raise safety.RecoveryValidationError(
+            "Numeric values must be finite", reason_code="INVALID_NUMERIC_VALUE"
+        )
     return value
 
 
@@ -59,7 +62,9 @@ def fmt(value):
 def round_to(value, step):
     value, step = D(value), D(step)
     if value < 0 or step <= 0:
-        raise ValueError("Invalid value/step")
+        raise safety.RecoveryValidationError(
+            "Invalid value/step", reason_code="INVALID_ROUNDING_RULE"
+        )
     return (value / step).to_integral_value(rounding=ROUND_DOWN) * step
 
 
@@ -274,8 +279,15 @@ def load_trades():
             if rec["state"] == "closed" and not rec.get("accounted"):
                 raise ValueError("Closed record missing execution accounting")
             if rec["state"] == "closed":
-                if inventory(rec) != 0 or rec.get("realized_events") != realized_events(rec):
+                left = inventory(rec)
+                if (
+                    (left != 0 and not valid_retained_dust(rec))
+                    or (left == 0 and rec.get("retained_dust"))
+                    or rec.get("realized_events") != realized_events(rec)
+                ):
                     raise ValueError("Closed record does not reconcile")
+            elif rec.get("retained_dust"):
+                raise ValueError("Retained-dust closure evidence on an active record")
             records.append(rec)
         except Exception:
             raise RuntimeError("Trade journal invalid; new trades blocked") from None
@@ -335,17 +347,23 @@ def symbol_filters(symbol):
         or data.get("symbol") != symbol
         or data.get("status") != "TRADING"
         or data.get("quoteAsset") != "USDT"
+        or data.get("baseAsset") != symbol[:-4]
         or not data.get("isSpotTradingAllowed")
         or not data.get("ocoAllowed")
         or not {"LIMIT", "MARKET", "LIMIT_MAKER", "STOP_LOSS"} <= set(data.get("orderTypes", []))
     ):
-        raise ValueError("Symbol does not support required Spot LIMIT/MARKET/OCO orders")
+        raise safety.RecoveryValidationError(
+            "Symbol does not support required Spot LIMIT/MARKET/OCO orders",
+            reason_code="SPOT_ORDER_SUPPORT_MISSING",
+        )
     raw = {f["filterType"]: f for f in data["filters"]}
     lot, price = raw["LOT_SIZE"], raw["PRICE_FILTER"]
     market = raw.get("MARKET_LOT_SIZE", lot)
     notional = raw.get("NOTIONAL", raw.get("MIN_NOTIONAL"))
     if not notional or D(notional["minNotional"]) <= 0:
-        raise ValueError("Missing exchange notional constraints")
+        raise safety.RecoveryValidationError(
+            "Missing exchange notional constraints", reason_code="NOTIONAL_RULE_MISSING"
+        )
     return {
         "step": D(lot["stepSize"]),
         "tick": D(price["tickSize"]),
@@ -366,7 +384,9 @@ def symbol_filters(symbol):
 def validate_qty(qty, f, reference_price, *, market=False, entry=False):
     qty, price = D(qty), D(reference_price)
     if qty <= 0 or price <= 0:
-        raise ValueError("Quantity and price must be positive")
+        raise safety.RecoveryValidationError(
+            "Quantity and price must be positive", reason_code="ORDER_QUANTITY_INVALID"
+        )
     # LOT_SIZE always applies. Zero market constraints mean disabled, not zero maximum.
     for prefix in ("", "market_") if market else ("",):
         step = f[prefix + "step"] if prefix else f["step"]
@@ -376,11 +396,16 @@ def validate_qty(qty, f, reference_price, *, market=False, entry=False):
             or (mx > 0 and qty > mx)
             or (step > 0 and round_to(qty, step) != qty)
         ):
-            raise ValueError("Quantity violates exchange LOT_SIZE/MARKET_LOT_SIZE")
+            raise safety.RecoveryValidationError(
+                "Quantity violates exchange LOT_SIZE/MARKET_LOT_SIZE", reason_code="ORDER_LOT_SIZE"
+            )
     margin = D("1.05") if entry else D("1")
     if not f["min_notional"] * margin <= qty * price <= f["max_notional"]:
-        raise ValueError(
-            "Configured size cannot satisfy required order minimums/fee buffer; skip trade"
+        raise safety.RecoveryValidationError(
+            "Configured size cannot satisfy required order minimums/fee buffer; skip trade",
+            reason_code="ORDER_MIN_NOTIONAL"
+            if qty * price < f["min_notional"] * margin
+            else "ORDER_MAX_NOTIONAL",
         )
 
 
@@ -793,6 +818,59 @@ def coverage(rec):
     return qty
 
 
+def protection_summary(rec, f=None):
+    """Actual coverage stays unchanged; only a below-step tail is unsellable.
+
+    Unknown order/fill evidence still raises. A whole exchange lot without a
+    stop never qualifies, regardless of its USDT value.
+    """
+    left, covered = inventory(rec), coverage(rec)
+    if covered >= left:
+        return {
+            "remaining": left,
+            "covered": covered,
+            "tradable": left,
+            "dust": D(0),
+            "lot_step": None,
+            "sufficient": left > 0,
+        }
+    f = f or symbol_filters(rec["symbol"])
+    tradable = round_to(left, f["step"])
+    sufficient = tradable > 0 and covered >= tradable
+    return {
+        "remaining": left,
+        "covered": covered,
+        "tradable": tradable,
+        "dust": max(D(0), left - covered) if sufficient else D(0),
+        "lot_step": f["step"],
+        "sufficient": sufficient,
+    }
+
+
+def protection_sufficient(rec, f=None):
+    return protection_summary(rec, f)["sufficient"]
+
+
+def record_protection_dust(rec, summary):
+    if summary["dust"]:
+        rec["protection_dust"] = {
+            "quantity": fmt(summary["dust"]),
+            "lot_step": fmt(summary["lot_step"]),
+        }
+    else:
+        rec.pop("protection_dust", None)
+
+
+def protection_dust_text(rec):
+    dust = rec.get("protection_dust")
+    if not dust:
+        return ""
+    return (
+        f"Fractional lot remainder: {dust['quantity']} {rec['symbol'][:-4]} "
+        f"(below quantity step {dust['lot_step']}); exchange-tradable quantity is stop-covered."
+    )
+
+
 def place_oco(symbol, qty, tp, stop, tick, f=None, client_id=None, order_cids=None):
     try:
         f = f or symbol_filters(symbol)
@@ -869,7 +947,9 @@ def submit_protection(rec, qty, t1, t2, stop, f):
                 ) from None
             raise RuntimeError("OCO rejected; remaining inventory requires safe recovery") from None
         refresh_lists(rec)
-    rec["state"] = "protected"
+    summary = protection_summary(rec, f)
+    record_protection_dust(rec, summary)
+    rec["state"] = "protected" if summary["sufficient"] else "needs_attention"
     save_trade(rec)
 
 
@@ -1068,7 +1148,7 @@ def fee_in_quote(row, base):
     return fee * D(reference["price"])
 
 
-def realized_events(rec):
+def acquisition_basis(rec):
     buys = list(executions(rec, "BUY"))
     base = rec["symbol"][:-4]
     bought = sum(
@@ -1078,6 +1158,63 @@ def realized_events(rec):
     cost = D(0)
     for t in buys:
         cost += D(t["quoteQty"]) + fee_in_quote(t, base)
+    return bought, cost
+
+
+def valid_retained_dust(rec):
+    """Replay dust quantity and unallocated acquisition cost from verified fills.
+
+    The live exchange LOT_SIZE step is captured at closure. No present market
+    price, sale, conversion or zero balance is invented for the retained asset.
+    """
+    try:
+        dust = rec["retained_dust"]
+        quantity, step, cost = (D(dust[key]) for key in ("quantity", "lot_step", "cost_basis_usdt"))
+        bought, total_cost = acquisition_basis(rec)
+        return (
+            type(dust["version"]) is int
+            and dust["version"] == 1
+            and dust["asset"] == rec["symbol"][:-4]
+            and 0 < quantity == inventory(rec) < step
+            and bought > 0
+            and cost > 0
+            and cost == total_cost * quantity / bought
+            and rec["accounted"] is True
+            and rec["state"] == "closed"
+            and D(rec["residual_qty"]) == quantity
+            and all(
+                o["status"] in TERMINAL and not o.get("evidence_pending") for o in rec["orders"]
+            )
+            and coverage(rec) == 0
+        )
+    except (KeyError, TypeError, ValueError, ArithmeticError, ex.Uncertain, ex.OwnershipError):
+        return False
+
+
+def retained_dust_text(rec):
+    dust = rec.get("retained_dust")
+    if not dust:
+        return ""
+    return (
+        f"Retained dust: {dust['quantity']} {dust['asset']} | "
+        f"cost basis {dust['cost_basis_usdt']} USDT (unsold; excluded from realized P&L)."
+    )
+
+
+def retained_dust_totals(records):
+    totals = {}
+    for rec in records:
+        dust = rec.get("retained_dust")
+        if rec["state"] == "closed" and dust:
+            item = totals.setdefault(dust["asset"], {"quantity": D(0), "cost_basis_usdt": D(0)})
+            item["quantity"] += D(dust["quantity"])
+            item["cost_basis_usdt"] += D(dust["cost_basis_usdt"])
+    return totals
+
+
+def realized_events(rec):
+    bought, cost = acquisition_basis(rec)
+    base = rec["symbol"][:-4]
     events = []
     for t in executions(rec, "SELL"):
         if bought <= 0:
@@ -1102,7 +1239,7 @@ def todays_loss(*, watch_id=None):
 
             if empty_watch(rec, rec["id"]):
                 continue
-            if rec["state"] != "protected" or not 0 < inventory(rec) <= coverage(rec):
+            if rec["state"] != "protected" or not protection_sufficient(rec):
                 raise ValueError("Open trade requires protection/accounting reconciliation")
             if not any(executions(rec, "SELL")):
                 continue
@@ -1114,15 +1251,34 @@ def todays_loss(*, watch_id=None):
 
 
 def finish_if_flat(rec, f):
+    """Close tradable inventory, retaining a proven below-step asset/cost bucket."""
     left = inventory(rec)
     if any(o["status"] not in TERMINAL for o in rec["orders"]):
         return False
-    # Dust is retained, explicitly recorded and blocks new entries until reconciled.
-    if left != 0:
+    if left >= f["step"]:
         rec["residual_qty"] = fmt(left)
         return False
     attach_fee_valuations(rec)
-    rec["realized_events"] = realized_events(rec)
+    # Classify closure on a copy. A failed atomic write must leave the caller's
+    # active record valid for its error handler to persist/recover.
+    closed = copy.deepcopy(rec)
+    if left:
+        balance = get_client().get_asset_balance(asset=f["base"])
+        if D(balance["free"]) + D(balance["locked"]) < D(rec["baseline_base"]) + left:
+            raise ex.OwnershipError("Retained dust balance cannot be isolated above the baseline")
+        bought, cost = acquisition_basis(rec)
+        if bought <= 0 or cost <= 0:
+            raise ex.OwnershipError("Retained dust lacks verified acquisition cost")
+        closed["retained_dust"] = {
+            "version": 1,
+            "asset": f["base"],
+            "quantity": fmt(left),
+            "lot_step": fmt(f["step"]),
+            "cost_basis_usdt": fmt(cost * left / bought),
+        }
+    else:
+        closed.pop("retained_dust", None)
+    closed["realized_events"] = realized_events(rec)
     references = [
         row["fee_valuation"]
         for order in rec["orders"]
@@ -1130,17 +1286,21 @@ def finish_if_flat(rec, f):
         if row.get("fee_valuation")
     ]
     if any(ref["method"] == "closed_1m_high_at_fill" for ref in references):
-        rec["pnl_valuation"] = (
+        closed["pnl_valuation"] = (
             "Actual BNB commission quantities; USDT reference valuation includes closed fill-minute highs (conservative, not Binance's private conversion rate)"
         )
     elif references:
-        rec["pnl_valuation"] = (
+        closed["pnl_valuation"] = (
             "Actual BNB commissions valued at preceding BNBUSDT trade reference (within 1 second)"
         )
-    rec.update(state="closed", accounted=True, residual_qty="0")
-    if rec["realized_events"]:
-        rec["result_notice_due"] = True
-    save_trade(rec)
+    closed.update(state="closed", accounted=True, residual_qty=fmt(left))
+    closed.pop("protection_dust", None)
+    closed.pop("recovery_reason_code", None)
+    if closed["realized_events"]:
+        closed["result_notice_due"] = True
+    save_trade(closed)
+    rec.clear()
+    rec.update(closed)
     return True
 
 
@@ -1165,8 +1325,9 @@ def emergency_sell_free(symbol, max_qty=None, f=None, *, rec=None):
         qty = min(qty, D(max_qty))
     if qty <= 0:
         if 0 < left - protected < f["step"]:
-            raise ValueError(
-                "Residual below exchange lot-size minimums; manual reconciliation required"
+            raise safety.RecoveryValidationError(
+                "Residual below exchange lot-size minimums; manual reconciliation required",
+                reason_code="EXIT_DUST",
             )
         raise ex.Uncertain("No verified free bot inventory; unrelated balance preserved")
     price = D(get_client().get_symbol_ticker(symbol=symbol)["price"])
@@ -1256,15 +1417,19 @@ def _reconcile_trade(rec):
                     ):
                         cancel_protection(rec, item)
                         # Unwind released ownership before removing another stop.
-                        if inventory(rec) > coverage(rec):
+                        if round_to(max(D(0), inventory(rec) - coverage(rec)), f["step"]) > 0:
                             emergency_sell_free(rec["symbol"], f=f, rec=rec)
         unprotected = inventory(rec) - coverage(rec)
-        if unprotected > 0:
+        if round_to(max(D(0), unprotected), f["step"]) > 0:
             # Recovery unwinds uncovered confirmed inventory, never re-buys/re-proposes.
             emergency_sell_free(rec["symbol"], f=f, rec=rec)
         if finish_if_flat(rec, f):
             return True
-        rec["state"] = "protected" if coverage(rec) >= inventory(rec) else "needs_attention"
+        summary = protection_summary(rec, f)
+        record_protection_dust(rec, summary)
+        rec["state"] = "protected" if summary["sufficient"] else "needs_attention"
+        if summary["sufficient"]:
+            rec.pop("recovery_reason_code", None)
         save_trade(rec)
         return False
 
@@ -1274,8 +1439,16 @@ def trade_result_text(rec):
     if not sells:
         return None
     left = inventory(rec)
-    final = rec["state"] == "closed" and rec.get("accounted") and left == 0
-    title = "TRADE CLOSED" if final else "PARTIAL EXIT — position still open"
+    final = (
+        rec["state"] == "closed"
+        and rec.get("accounted")
+        and (left == 0 or valid_retained_dust(rec))
+    )
+    title = (
+        ("TRADE CLOSED — dust retained" if rec.get("retained_dust") else "TRADE CLOSED")
+        if final
+        else "PARTIAL EXIT — position still open"
+    )
     lines = [title, f"Ticker: {rec['symbol']} | Trade: {rec['id'][:8]}"]
     events = []
     for order in rec["orders"]:
@@ -1320,9 +1493,14 @@ def trade_result_text(rec):
         )
         if cost <= 0:
             raise ValueError("Missing verified entry cost")
-        lines.append(
-            f"Net {'result' if final else 'realized so far'}: {pnl:+.4f} USDT ({pnl / cost * 100:+.2f}% of entry cost)"
+        label = (
+            "realized result"
+            if final and rec.get("retained_dust")
+            else "result"
+            if final
+            else "realized so far"
         )
+        lines.append(f"Net {label}: {pnl:+.4f} USDT ({pnl / cost * 100:+.2f}% of entry cost)")
         candle_valued = any(
             t.get("fee_valuation", {}).get("method") == "closed_1m_high_at_fill"
             for t in sells + list(executions(rec, "BUY"))
@@ -1348,6 +1526,11 @@ def trade_result_text(rec):
             raise
         lines.append("Net result pending verified fee valuation; no estimated profit reported.")
     lines.append(f"Remaining bot quantity: {fmt(left)}")
+    if rec.get("retained_dust"):
+        lines.append(retained_dust_text(rec))
+        lines.append(
+            "Exchange-tradable position closed. Retained dust does not occupy an active trade slot."
+        )
     if not final:
         lines.append("Not a final result. Use /status for stop coverage.")
     return "\n".join(lines)
@@ -1428,7 +1611,7 @@ def mark_attention(rec, error=None):
         if rec["state"] != "closed":
             rec["state"] = "needs_attention"
             if error is not None:
-                code = error.reason_code if isinstance(error, safety.RecoveryError) else None
+                code = safety.recovery_code(error)
                 rec["recovery_reason_code"] = code or "RECONCILIATION_PENDING"
             save_trade(rec)
 
@@ -1448,7 +1631,8 @@ def monitor_trade(rec, max_checks=None):
                 log.error("Journal update failed; existing evidence preserved and entries blocked")
             if failures == 1 or failures % 12 == 0:
                 alert(
-                    safety.safe_error(error).rstrip(".")
+                    f"{rec['symbol']} | Trade {rec['id'][:8]}: "
+                    + safety.safe_error(error).rstrip(".")
                     + ". New entries blocked; monitor will retry reconciliation."
                 )
         checks += 1
@@ -1489,7 +1673,8 @@ def recover_trades():
                     "Recovery journal update failed; existing evidence preserved and entries blocked"
                 )
             alert(
-                safety.safe_error(error).rstrip(".")
+                f"{rec['symbol']} | Trade {rec['id'][:8]}: "
+                + safety.safe_error(error).rstrip(".")
                 + ". Recovery will continue; new entries blocked."
             )
     return records
@@ -1631,6 +1816,10 @@ def status_report():
                 lines.append(
                     f"{rec['symbol']}: {rec['state']}; bot remaining {fmt(inventory(rec))}; stop coverage {fmt(coverage(rec))}"
                 )
+                summary = protection_summary(rec)
+                record_protection_dust(rec, summary)
+                if summary["dust"]:
+                    lines.append(protection_dust_text(rec))
                 if rec["state"] == "needs_attention":
                     if inventory(rec) == 0:
                         lines.append(
@@ -1647,6 +1836,14 @@ def status_report():
                 )
         if not active:
             lines.append("No active bot positions")
+        dust_totals = retained_dust_totals(records)
+        if dust_totals:
+            lines.append("Retained dust ledger — not active positions; no automatic conversion:")
+            for asset, totals in sorted(dust_totals.items()):
+                lines.append(
+                    f"{asset}: {fmt(totals['quantity'])} retained | cost basis "
+                    f"{fmt(totals['cost_basis_usdt'])} USDT; excluded from realized P&L"
+                )
         if records:
             last = max(records, key=lambda rec: rec["created_utc"])
             lines.append("Latest saved entry: " + entry_result(last))

@@ -3,6 +3,24 @@
 Release notes describe code changes. Git commits provide the exact history.
 Account settings, keys and trade journals remain local and are ignored by Git.
 
+## 1.6.0 — 2026-10-31
+
+- Fix repeated reconciliation of a base-fee fraction below Binance's quantity
+  step: preserve existing OCOs when they cover all exchange-tradable inventory,
+  report the tail, and avoid attempting a zero-quantity emergency sale.
+- Once tradable inventory closes, retain the proven dust quantity and allocated
+  acquisition cost in the same atomic journal, free the trade slot, and report
+  the unsold asset separately from realized P&L. Reserve its cost against normal
+  portfolio risk capacity; preserve the baseline for subsequent same-pair trades.
+- Require terminal order evidence, valued actual fees, physical ownership and
+  replayable cost accounting. Keep whole-lot/notional failures unresolved.
+- Make closure classification transactional across journal-write failures.
+- Add pair/trade identifiers and private-error-safe local validation reason codes
+  to recovery alerts. Chunk long `/status` reports.
+- Add 19 offline regressions, including the exact reported PEPE/UNI quantities,
+  restart and exit recovery, partial buys, accounting and failed persistence.
+- Require v1.6.0 or newer after retained-dust closures; preserve runtime journals.
+
 ## 1.5.0 — 2026-10-31
 
 - Rename the product to NEXVANT across shared identity, help, scanner, launcher

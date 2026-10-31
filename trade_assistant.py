@@ -37,7 +37,12 @@ class ActiveTradeError(ValueError):
 def active_trade_reason(symbol, records, limit=1):
     if len(records) != 1:
         names = ", ".join(sorted({record["symbol"] for record in records}))
-        return f"Active or unresolved trades: {names}; active trade limit is {limit}."
+        label = (
+            "Active trades"
+            if all(record["state"] == "protected" for record in records)
+            else "Active or unresolved trades"
+        )
+        return f"{label}: {names}; active trade limit is {limit}."
     record = records[0]
     name = record["symbol"]
     if record.get("entry_watch", {}).get("active"):
@@ -74,11 +79,7 @@ def ensure_free_trade_slot(symbol, *, watch_id=None, limits=None):
             raise ActiveTradeError(active_trade_reason(symbol, [record], limits["max_open_trades"]))
         if empty_watch(record, record["id"]):
             continue
-        if (
-            record["state"] != "protected"
-            or em.inventory(record) <= 0
-            or em.coverage(record) < em.inventory(record)
-        ):
+        if record["state"] != "protected" or not em.protection_sufficient(record):
             raise ActiveTradeError(
                 f"{record['symbol']} trade requires reconciliation/protection; new entries are blocked."
             )
@@ -92,7 +93,7 @@ def verify_parallel_positions(records):
         if empty_watch(rec, rec["id"]):
             continue
         em.refresh(rec)
-        if rec["state"] != "protected" or not 0 < em.inventory(rec) <= em.coverage(rec):
+        if rec["state"] != "protected" or not em.protection_sufficient(rec):
             raise ActiveTradeError(
                 f"{rec['symbol']} protection/accounting changed; reconciliation required."
             )
@@ -303,7 +304,16 @@ def _build_plan(sig, *, approved_bounds=None, watch_id=None):
     if any(value <= 0 for value in watch_costs + risks):
         raise ValueError("Invalid active-trade reservation")
     watch_reserve = sum(watch_costs, Decimal(0))
-    committed_risk = sum(risks, Decimal(0))
+    retained_cost = sum(
+        (
+            em.D(rec["retained_dust"]["cost_basis_usdt"])
+            for rec in em.load_trades()
+            if rec["state"] == "closed" and rec.get("retained_dust")
+        ),
+        Decimal(0),
+    )
+    # A freed slot does not turn an unsold asset into free risk capacity.
+    committed_risk = sum(risks, Decimal(0)) + retained_cost
     balance = em.D(c.get_asset_balance(asset="USDT")["free"]) - watch_reserve
     if balance <= 0:
         raise ValueError("No available USDT")
@@ -390,6 +400,7 @@ def _build_plan(sig, *, approved_bounds=None, watch_id=None):
         "max_position_usdt": limits["max_position_usdt"],
         "committed_risk": committed_risk,
         "watch_reserve": watch_reserve,
+        "retained_dust_cost": retained_cost,
     }
     if algorithmic:
         import algorithmic_planner as algo
@@ -525,7 +536,12 @@ def submit_entry(rec, plan):
                 em.alert(
                     "PARTIAL ENTRY RECONCILED. "
                     + em.entry_result(rec)
-                    + ". Confirmed acquired inventory has been closed and accounted for."
+                    + ". "
+                    + (
+                        em.retained_dust_text(rec)
+                        if rec.get("retained_dust")
+                        else "Confirmed acquired inventory has been closed and accounted for."
+                    )
                 )
 
         else:
@@ -533,12 +549,14 @@ def submit_entry(rec, plan):
             em.save_trade(rec)
             em.submit_protection(rec, em.inventory(rec), plan["t1"], plan["t2"], plan["stop"], f)
             remaining, covered = em.inventory(rec), em.coverage(rec)
-            if remaining > 0 and covered >= remaining:
+            if em.protection_sufficient(rec, f):
                 em.alert(
                     "BUY FILLED / PROTECTION CONFIRMED. "
                     + em.entry_result(rec)
                     + f". Remaining bot quantity {remaining}; observed stop coverage {covered}; "
-                    f"{len(rec['oco'])} OCO lists verified. Use /status for current state."
+                    f"{len(rec['oco'])} OCO lists verified. "
+                    + (em.protection_dust_text(rec) + " " if rec.get("protection_dust") else "")
+                    + "Use /status for current state."
                 )
             elif remaining == 0:
                 em.alert(

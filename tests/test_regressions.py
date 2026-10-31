@@ -617,12 +617,15 @@ def test_actual_base_buy_fee_leaves_tracked_dust_without_selling_user_holdings(s
     rec = paused(sim, monkeypatch)
     for item in sim.lists.values():
         sim.fill(sim.orders[item["orders"][0]["orderId"]], price="104.5")
-    with pytest.raises(ValueError, match="minimums"):
-        em.reconcile_trade(rec)
+    assert em.reconcile_trade(rec)
     assert sim.free["FOO"] > 5
-    assert em.inventory(em.load_trades()[0]) > 0
-    with pytest.raises(ta.ActiveTradeError):
-        ta.build_plan(sig())
+    saved = em.load_trades()[0]
+    assert em.inventory(saved) > 0 and em.valid_retained_dust(saved)
+    assert saved["state"] == "closed" and not em.active_trades()
+    # Owner-authorized dust policy: retain the asset/cost and protect it through
+    # the next trade's pre-buy balance floor, rather than clearing ownership.
+    next_plan = ta.build_plan(sig())
+    assert next_plan["baseline_base"] == sim.free["FOO"]
 
 
 def test_active_status_reports_coverage_and_unresolved_state(sim, monkeypatch):

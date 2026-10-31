@@ -1,6 +1,6 @@
 # NEXVANT algorithmic proposal design
 
-Display version: 1.5.0. Strategy identity: `atr-structure-v2`.
+Display version: 1.6.0. Strategy identity: `atr-structure-v2`.
 Reviewed public documentation on 31 October 2026 (Asia/Dubai).
 
 This is a deterministic rules-based proposal generator, not a trained AI model,
@@ -164,6 +164,17 @@ BTC/altcoin downtrends. Report net expectancy, drawdown, losing streak, turnover
 trade rejection rate and sensitivity to nearby parameter choices, then reserve
 an untouched evaluation period. Synthetic tests cannot establish these metrics.
 
+V1.6.0 distinguishes tradable inventory from a fraction strictly below the live
+`LOT_SIZE` step. Working stops must cover all tradable units; an uncovered whole
+lot remains a blocker even if its value is below the order minimum. Once all
+orders are terminal and fees, ownership and acquisition costs reconcile, the
+below-step fraction and its allocated cost remain in a separate bucket within
+the trade journal. Closing the tradable position frees the slot but does not
+create a dust sale or realized P&L. Retained acquisition cost reserves normal
+risk capacity alongside active-plan risk. No statistical entry/exit formula is
+changed by this recovery policy.
+
 Prices can gap between checks, buy and OCO placement are not atomic, targets can
-fail to fill, emergency exits can fail, and dust can block closure. Statistical
-levels are suggestions; they do not remove the account owner's trading risk.
+fail to fill, emergency exits can fail, and residuals can block closure when they
+do not meet these evidence requirements. Statistical levels are suggestions;
+they do not remove the account owner's trading risk.

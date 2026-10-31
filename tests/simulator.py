@@ -39,6 +39,7 @@ class SpotSimulator:
         self.min_notional = "1"
         self.fee_rate = D(".001")
         self.fee_asset = "USDT"
+        self.base_fee_step = None  # Optional venue commission-precision quantum.
         self.bnb_price = D(600)
         self.bnb_discount = False
         self.discount_multiplier = D(".75")
@@ -110,6 +111,8 @@ class SpotSimulator:
         quote = qty * price
         asset = self.fee_asset
         fee = (qty if asset == base else quote) * self.fee_rate
+        if asset == base and self.base_fee_step is not None:
+            fee = (fee // self.base_fee_step) * self.base_fee_step
         if asset == "BNB":
             multiplier = self.discount_multiplier if self.bnb_discount else D(1)
             fee = quote * self.fee_rate * multiplier / self.bnb_price

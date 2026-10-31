@@ -11,6 +11,15 @@ MAX_DAILY_LOSS_USD = 3
 
 
 RECONCILIATION_REASONS = {
+    "INVALID_NUMERIC_VALUE": "A numeric value is invalid or non-finite; validation cannot complete.",
+    "INVALID_ROUNDING_RULE": "A quantity/price rounding rule is invalid; validation cannot complete.",
+    "SPOT_ORDER_SUPPORT_MISSING": "The pair lacks required active USDT Spot/OCO order support.",
+    "NOTIONAL_RULE_MISSING": "The exchange minimum-order-value rule is unavailable; validation is pending.",
+    "ORDER_QUANTITY_INVALID": "Order quantity or reference price is not positive; validation is pending.",
+    "ORDER_LOT_SIZE": "Order quantity does not satisfy the exchange lot size, step or quantity limits.",
+    "ORDER_MIN_NOTIONAL": "Order value is below the exchange minimum, including any required entry buffer.",
+    "ORDER_MAX_NOTIONAL": "Order value exceeds the exchange maximum; validation is pending.",
+    "EXIT_DUST": "Remaining bot quantity is below the exchange quantity step; a market exit cannot be submitted.",
     "BNB_CANDLE_NOT_CLOSED": "Waiting for the BNB fee's containing minute to close; final P&L is pending.",
     "BNB_CANDLE_INVALID": "Historical BNB candle failed validation; final P&L is pending.",
     "BNB_REFERENCE_MISSING": "Historical BNB fee reference unavailable; final P&L is pending.",
@@ -38,6 +47,25 @@ class RecoveryError(RuntimeError):
         self.reason_code = reason_code if reconciliation_reason(reason_code) else None
 
 
+class RecoveryValidationError(ValueError):
+    """A local validation failure with an allow-listed public reason.
+
+    Keep ValueError compatibility. Arbitrary SDK/HTTP ValueErrors are deliberately
+    not trusted to provide a renderable reason or exception text.
+    """
+
+    def __init__(self, message, *, reason_code):
+        super().__init__(message)
+        self.reason_code = reason_code if reconciliation_reason(reason_code) else None
+
+
+def recovery_code(error):
+    if isinstance(error, (RecoveryError, RecoveryValidationError)):
+        code = error.reason_code
+        return code if reconciliation_reason(code) else None
+    return None
+
+
 def safe_error(error):
     # Do not stringify arbitrary exchange/HTTP exceptions: request URLs, bodies,
     # headers and signatures may contain credentials. No credential discovery.
@@ -51,10 +79,11 @@ def safe_error(error):
     if type(status) is int and 100 <= status <= 599:
         details.append(f"HTTP {status}")
     metadata = f" ({', '.join(details)})" if details else ""
-    if isinstance(error, RecoveryError):
-        reason = reconciliation_reason(error.reason_code)
+    reason_code = recovery_code(error)
+    if reason_code:
+        reason = reconciliation_reason(reason_code)
         if reason:
-            return f"{type(error).__name__}{metadata} [{error.reason_code}]: {reason}"
+            return f"{type(error).__name__}{metadata} [{reason_code}]: {reason}"
     return f"{type(error).__name__}{metadata}: operation failed; reconcile exchange state"
 
 

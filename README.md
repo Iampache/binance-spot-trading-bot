@@ -2,6 +2,46 @@
 
 Binance Spot trading assistant with Telegram control. Concept & developed by Fazil.
 
+## Fractional PEPE recovery and retained dust (v1.6.0)
+
+The reported PEPE position had **1,723,228.05 PEPE** remaining but protective
+orders covered **1,723,228 PEPE**. Base-asset commission left a **0.05 PEPE** tail
+below the exchange's one-PEPE quantity step. Recovery previously treated that
+tail as inventory requiring an emergency sale, rounded the sale to zero, raised
+`ValueError`, and repeated the same reconciliation warning. This differs from
+the earlier missing BNB fee-reference problem; the generic alert hid the cause.
+
+Recovery now preserves working stops when all exchange-tradable units are
+covered and reports the below-step fraction separately. Actual inventory and
+coverage remain visible; the fraction is not marked sold or rounded out of the
+ledger. Restart recovery can heal this particular `needs_attention` state without
+canceling the existing OCOs or placing another order. A whole uncovered lot,
+unknown order outcome or missing fee evidence still blocks new entries.
+
+After every sellable unit is closed, a verified fraction strictly below the
+`LOT_SIZE` step moves into a **retained-dust quantity and acquisition-cost bucket**
+in the same atomic trade journal. The tradable position closes and frees its
+slot. `/status`, position details, result messages and `/pnl` report the retained
+asset and cost separately. Realized P&L includes actual sales and their allocated
+cost only; retained dust has no invented sale proceeds or realized loss. Its
+cost continues to reserve normal portfolio risk capacity. A tiny partial buy
+with no sellable units can close into this bucket without inventing a sale.
+
+Classification requires terminal, reconciled orders, verified fees/costs and
+physical inventory above the pre-entry baseline. Even a small remainder **at
+least one quantity step** remains unresolved if it cannot satisfy order minimums.
+There is no automatic conversion, extra purchase to meet minimums, or sale of
+unrelated holdings. Later entries include old dust in their ownership baseline.
+The retained ledger is historical acquisition evidence; external manual dust
+conversion, withdrawal or disposal is not automatically accounted as a sale.
+
+Recovery warnings now identify the pair/trade and use fixed reason codes for
+known local validation failures without exposing raw API errors. Preserve the
+entire `runtime_state` folder when upgrading. **After retained-dust closures,
+keep v1.6.0 or newer:** older code rejects closed records with positive inventory.
+Do not downgrade or reset the journal to clear a warning. Two genuinely active
+positions still occupy two slots even when a fractional-tail warning is healed.
+
 ## NEXVANT identity and Telegram dashboard (v1.5.0)
 
 The product is now **NEXVANT** across startup, command help, the Windows window
@@ -372,9 +412,11 @@ valuation is conservative relative to observed trades in that minute, not a
 proven upper bound on Binance's private conversion or historical quotes. Missing or
 invalid reference data blocks completion/new entries, but does not delay placing
 protective OCOs or unwinding confirmed inventory. Unsupported other fee assets
-remain unresolved instead of being treated as zero. Dust below lot/notional
-minimums and histories reaching the 1,000-fill response limit still block rather
-than silently truncating ownership or accounting evidence.
+remain unresolved instead of being treated as zero. V1.6.0 retains proven
+below-quantity-step dust and its cost separately after closing tradable inventory.
+Residuals of at least one quantity step that fail order minimums, and histories
+reaching the 1,000-fill response limit, still block rather than silently truncating
+ownership or accounting evidence.
 
 See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the second review and remaining
 risks, and [TEST_RESULTS.md](TEST_RESULTS.md) for the regression mapping and results.

@@ -1021,7 +1021,9 @@ def handle_message(msg):
         show_last_proposal()
     elif low.startswith("/status"):
         try:
-            say(f"{em.status_report()}\nPending proposals: {len(pending)}")
+            text = f"{em.status_report()}\nPending proposals: {len(pending)}"
+            for start in range(0, len(text), 3500):
+                say(text[start : start + 3500])
         except Exception as e:
             say(f"Status error: {safe(e)}")
     elif command == "/start":

@@ -1,9 +1,15 @@
 # Offline validation results
 
-Latest v1.5.0 result: **538 passed, 3 native Windows skips**, three upstream
+Latest v1.6.0 result: **557 passed, 3 native Windows skips**, three upstream
 deprecation warnings. Ruff lint/format, Bandit, dependency and whitespace checks
 pass. The sections below retain earlier run history; the latest regression
 details are recorded at the end.
+
+V1.6.0 adds 19 below-quantity-step recovery/accounting regressions. One earlier
+regression intentionally changes its expectation under the owner's explicit
+policy: proven unsellable fractions retain their cost and free the tradable
+position's slot, rather than blocking indefinitely. Whole-lot and uncertain
+evidence cases continue to block.
 
 Environment: Linux, Python 3.12.14, python-binance 1.0.37. The original 13 scenarios
 were retained and migrated from an invented exchange interface to the actual SDK
@@ -634,3 +640,34 @@ Full local suite: **538 passed, 3 native Windows skips**, three upstream warning
 Ruff lint/format, Bandit, dependency and whitespace checks pass. Financial lifecycle,
 recovery and approval assertions remain intact. Actual Telegram rendering/profile
 permissions and native Windows behavior remain separate runtime checks.
+
+## Fractional PEPE recovery and costed dust (v1.6.0)
+
+`tests/test_fractional_dust.py` adds 19 passing cases using synthetic SDK
+transport data. The replay uses the reported gross buy of 1,724,953 PEPE,
+1,724.95 PEPE commission, 1,723,228.05 net inventory, 1,723,228 stop coverage,
+and a concurrent 1.71 UNI protected position. It verifies that a saved
+`needs_attention` PEPE state heals without canceling stops, selling, placing
+another order or changing UNI; both genuine positions still occupy their slots.
+
+Exit/target cases verify exact retained quantity, allocated acquisition cost,
+actual proceeds versus realized P&L, a released trade slot, persistent reload,
+retained-cost risk reservation, separate result/status/P&L disclosure, subsequent
+same-pair ownership baselines and stale exit controls. Tampered dust evidence,
+one whole uncovered lot, unknown order evidence, missing physical inventory and
+missing BNB valuation remain blocking cases. Fee recovery completes only once
+the evidence returns; arbitrary SDK errors cannot spoof public reason codes.
+
+Fault injection verifies a failed atomic closure write recovers without another
+sell. A tiny partial IOC buy below the quantity step retains its entire verified
+cost without inventing a sell or realized result. When its closure write fails,
+the entry error handler persists a valid active record; later reconciliation
+closes it into the dust ledger without a duplicate exchange action. The original
+base-fee regression now checks this explicitly owner-authorized policy while
+retaining its assertions that unrelated holdings and later baselines are preserved.
+
+Final full suite: **557 passed, 3 native Windows skips**, three upstream
+deprecation warnings. Ruff lint/format, Bandit, `pip check` and `git diff --check`
+pass. All exchange/Telegram operations above are offline simulations with sockets
+and HTTP forbidden. The live journal was not accessed; real exchange behavior,
+Windows timing and zero defects are not established by this suite.

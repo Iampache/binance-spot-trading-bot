@@ -1,83 +1,56 @@
-# NEXVANT: recoverable Spot trading with approved setups and position management
+# NEXVANT: recoverable Spot positions, approved controls and fractional-dust accounting
 
-Interrupted buys, uncertain responses and partial OCO placement could lose track
-of acquired coins. This branch journals order identities before requests,
-reconciles fills/fees, isolates account/environment state and recovers ownership
-after restart. Price-capped IOC entries and two protective OCOs retain single-use
-Telegram approval bounds. Uncertain writes are never blindly retried.
+A reported PEPE trade had 1,723,228.05 coins remaining and working stops for
+1,723,228. Base commission left a 0.05 fraction below the exchange's one-coin
+quantity step. Recovery attempted to sell the fraction, rounded to zero, and
+repeated a generic ValueError while blocking new entries. V1.6.0 preserves the
+stops when every tradable unit is covered and reports the exact unsellable tail.
+The reported PEPE/UNI state recovers without an exchange mutation or a UNI change.
 
-The product now uses NEXVANT identity across code, help, launcher and docs, with
-original banner/avatar assets. /start opens a photo dashboard; its fixed owner-only
-shortcuts reuse existing commands. Startup registers a chat-scoped native Menu
-and the requested display name, descriptions and static profile photo through
-verified Bot API methods. Successful cosmetics are cached without storing the
-token, failures retry later, and missing/rejected images fall back to text.
-Telegram @usernames/client themes are documented separately. Runtime paths and
-existing journals are retained; branding adds no trading permissions.
+After tradable units close, the retained fraction and its allocated acquisition
+cost are recorded in the same atomic trade journal. Terminal execution evidence,
+valued fees, physical ownership above the baseline and replayable accounting are
+required. The trade slot is released; actual-sale P&L excludes the unsold cost,
+which remains reserved against normal risk capacity. Status, position details,
+results and daily P&L disclose retained assets. Whole-lot/notional failures,
+unknown orders and missing evidence remain unresolved. Later same-pair entries
+preserve old dust in their baseline. Closure classification survives journal
+write failure without leaving half-classified records or duplicating sales.
 
-V1.3 adds owner-only /setup with reviewed, confirmed maximum active trades and
-per-trade investment cap. Defaults remain one trade and 12 USDT. Account-scoped
-settings, monotonic revisions and timestamped old/new values are persisted in one
-atomic, Git-ignored local file. Changing settings invalidates pending approvals
-and untriggered watches; lower limits never close or reprice existing positions.
-Plans/approvals bind the settings revision, and locked final checks enforce the
-current limits even when a proposal was built before a change.
+Recovery alerts identify the pair/trade and use fixed reason codes for known
+local failures without exposing raw exception text. No automatic dust sale,
+conversion, top-up or false zero is introduced. Preserve runtime journals and
+keep v1.6.0 or newer after dust closures; earlier versions reject closed records
+with positive remaining inventory. External disposal is not invented as a sale.
 
-Different USDT pairs can now be protected concurrently. Duplicate pairs, uncertain
-positions, unprotected inventory and unowned/changed exchange orders still block
-entries. Other OCOs are refreshed and matched by pair, IDs, side/type, list,
-quantity and exit prices. Watch costs reserve free USDT; full active-plan risk is
-reserved against the normal daily budget. Current order/list usage counts toward
-exchange capacity. New submissions remain serialized, with separate position
-monitoring; recovery/close operations retain account locking and per-pair ownership.
+The branch also includes durable buy/OCO intents, evidence-based restart
+recovery, capped IOC entries, fee accounting, account/environment isolation and
+single-use Telegram approval. Unknown writes are reconciled before another
+submission. Owner-only `/setup` persists confirmed parallel-trade and investment
+caps; cash, active risk, order capacity and exact OCO ownership constrain entry.
+Defaults remain one trade and 12 USDT. `/position` adds read-only details and
+expiring, exact-record Exit Trade confirmation with durable per-OCO unwind.
+Watches have a distinct cancellation. `/pnl` uses completed trades' final sell
+day in Dubai time; UTC daily-risk accounting remains separate. Cooperative Ctrl+C
+announces saving and joins workers before releasing the instance lock.
 
-/position and /positions now list bot trades with frozen numbers/IDs and refreshed
-entry, reference price, original exits, target status, remaining quantity and
-coverage. Browsing is read-only. Exit Trade requires a second, expiring confirmation
-bound to the exact record/account and message. Acceptance is journaled before
-the existing per-OCO cancel/market-close recovery path starts. Other holdings
-remain isolated; unknown sales reconcile without duplicate submission. Old
-same-pair controls cannot target a replacement trade. An unfilled watch has a
-separate cancellation; entry-state changes require a fresh review. CLI/legacy
-watch close requests now cancel without advancing into a buy. Exit acceptance
-is distinct from verified closure and final net P&L. /cancel only revokes exits
-before durable acceptance; accepted exits continue through restart recovery.
+NEXVANT identity, original artwork, `/start` dashboard, owner-scoped Telegram Menu,
+cached profile setup, linked tickers, public discovery and three proposal modes
+reuse the same authorization flows. BTC weakness is advisory by explicit owner
+choice; the coin's strategy checks remain. New Listings awaits a verified source.
+Normal policy retains Spot USDT, 10M turnover, 1% sizing and the 3 USDT daily-risk
+budget. Manual risk exceptions remain explicit; every new buy requires approval.
 
-/pnl reports fee-adjusted results for fully completed bot trades on the final
-sell-fill day in Dubai time, including each trade's full result. Open/partial,
-unfilled and pending-accounting records are excluded; invalid accounting shows
-unavailability. BNB fees retain evidence-backed reference valuation. UTC fill-day
-daily-risk accounting remains separate. Ctrl+C now announces a cooperative stop,
-including a Windows console callback independent of the main network wait, then
-joins workers before releasing the instance lock. Exchange OCOs remain active.
+Validation: **557 passed, 3 native Windows skips**, three upstream warnings.
+Ruff lint/format, Bandit, dependency and whitespace checks pass. Nineteen new
+regressions cover the exact PEPE/UNI replay, retained cost, same-pair ownership,
+whole-lot/unknown/fee/balance blockers, safe diagnostics, partial IOC fills and
+atomic-write failures. The suite forbids sockets/HTTP and uses synthetic SDK
+transport data. No production credentials, live Binance, Telegram service or real
+orders were used. Windows-specific behavior remains a native verification step.
 
-The branch also includes Manual, Assisted and Auto Setup, public High Volume/Top
-Gainers discovery, linked tickers, clear execution blockers, correct Cancel/expiry
-keyboards, compact proposals/Details and persistent net-result delivery. New
-Listings awaits a verified source. By explicit owner choice, BTC weakness is
-advisory in algorithm modes; the coin's own trend/setup checks still apply.
-
-Normal fixed policy remains Spot USDT, 10M turnover, 1% risk sizing and a 3 USDT
-daily loss/risk budget. Owner-authorized Manual exceptions remain explicit; they
-cannot bypass configured caps, exchange validity, ownership, OCO protection or
-final approval. Every new buy still requires approval. Settings are ceilings,
-not guaranteed allocation; aggregate normal risk/funds can prevent filling slots.
-
-Validation: **538 passed, 3 native Windows skips**, three upstream deprecation
-warnings. Ruff lint/format, Bandit, pip dependencies and whitespace checks pass.
-Tests use synthetic transport data with sockets/HTTP forbidden. New tests cover
-atomic settings/audit, stale approvals, concurrent pair admission, separate
-protection/recovery/closing, cash/risk reservations, exchange capacity, completed
-P&L day boundaries, shutdown ordering, exact-record exit authorization, stale
-controls, partial/timeout/stop races, watch changes and close restart recovery,
-owner-only dashboard navigation, cosmetic cache/fallbacks and multipart payloads.
-Windows console callback logic is mocked
-locally; actual Windows console timing remains a native verification step.
-
-CHANGELOG.md now records versions alongside Git history; private account settings
-and journals remain local. See TEST_RESULTS.md, SECURITY_REVIEW.md and
-ALGORITHM_DESIGN.md. No production credentials, live Binance, Telegram service
-or real orders were used. No historical profitability or paper/live matching
-validation is claimed. Parallel exposure and removal of the BTC veto are explicit
-owner-requested policies, not evidence of better returns. Buy/protection remains
-non-atomic; gaps, outages, slippage and dust remain possible. No merge into main.
+Source versions and changes are recorded in CHANGELOG.md and Git history;
+private settings/journals stay local. See TEST_RESULTS.md, SECURITY_REVIEW.md and
+ALGORITHM_DESIGN.md for evidence and limits. Buy/protection and cancel/sell are
+non-atomic; outages, gaps and residual exposure remain possible. No profitability
+or zero-defect claim is made. No merge into main.

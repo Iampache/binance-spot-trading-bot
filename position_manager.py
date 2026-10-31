@@ -97,6 +97,8 @@ def target_status(rec, index):
 def details_text(view):
     rec, price = view["record"], view["price"]
     state = STATES[rec["state"]]
+    if rec.get("retained_dust"):
+        state += " — dust retained"
     if view["error"]:
         state += " (saved state; exchange check pending)"
     if rec.get("close_requested") and rec["state"] != "closed":
@@ -137,6 +139,11 @@ def details_text(view):
             f"Remaining bot quantity: {em.fmt(left)}",
             f"Observed stop coverage: {em.fmt(covered)}",
         ]
+        if rec["state"] != "closed":
+            summary = em.protection_summary(rec)
+            em.record_protection_dust(rec, summary)
+            if summary["dust"]:
+                lines.append(em.protection_dust_text(rec))
         if left == 0 and rec["state"] != "closed" and view["action"] != "cancel_watch":
             lines.append("No verified held quantity; entry/exit accounting may still be pending.")
     if view["error"]:
@@ -159,6 +166,12 @@ def details_text(view):
         lines += [
             "",
             "The accepted exit request is saved. Recovery continues; a final result confirms closure.",
+        ]
+    if rec.get("retained_dust"):
+        lines += [
+            "",
+            em.retained_dust_text(rec),
+            "The exchange-tradable position is closed; this retained asset does not use a trade slot.",
         ]
     return "\n".join(lines)
 

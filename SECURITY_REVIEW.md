@@ -7,6 +7,44 @@ agent, plus independent automated static analysis using Bandit. It is **not an
 independent human or third-party audit**, and is not certification for live trading.
 No Binance account, production credential or Telegram integration was accessed.
 
+## Fractional inventory and retained-cost review (v1.6.0)
+
+The reported PEPE state was reproduced through the pinned SDK transport:
+1,724,953 PEPE bought, 1,724.95 PEPE base commission, 1,723,228.05 net inventory,
+and 1,723,228 PEPE stop coverage. An unprotected 0.05 fraction below a one-PEPE
+step caused recovery to attempt a zero-sized sale. The former generic ValueError
+also obscured the difference from the prior BNB reference-data issue.
+
+Protection now requires coverage of all exchange-tradable units. The actual
+fraction is displayed without changing inventory or reported coverage; a whole
+uncovered lot is never excused based on its USDT value. Unknown execution/list
+evidence, actual order minimums and fee valuation requirements remain enforced.
+Healing the exact PEPE state leaves the existing OCOs and concurrent UNI trade
+untouched, with no new exchange mutation.
+
+By explicit owner choice, after sellable inventory closes a fraction strictly
+below `LOT_SIZE` step can be classified into a retained-dust bucket in the same
+atomic journal. All orders must be terminal and reconciled; actual fees must be
+valued and the physical balance must cover the pre-entry baseline plus the
+retained amount. Replay verifies quantity, asset, captured step, residual,
+allocated acquisition cost and realized sales. Tampered/partial classification
+blocks loading. Closure is built on a copy and applied only after a successful
+atomic save, so an error handler cannot persist half-classified active state.
+
+The position slot is released while the unsold quantity/cost remains recorded.
+Actual-sale P&L allocates only the corresponding acquisition cost; dust cost is
+reported separately and reserves normal portfolio risk capacity. There is no
+synthetic sale, zero balance, conversion, top-up or use of unrelated holdings.
+Later same-pair entries include retained inventory in their baseline. The ledger
+does not invent settlement for a later external manual disposal. Closed positive
+inventory is incompatible with older code: retain v1.6.0 or newer and preserve
+the journals rather than downgrading/resetting them.
+
+Known local validation errors have allowlisted codes and fixed explanations;
+arbitrary SDK errors cannot supply public error text or spoof a code. Recovery
+alerts identify the pair and shortened trade ID. This implementing-agent review
+and 19 added regressions are not an independent audit or a zero-defect claim.
+
 ## NEXVANT presentation and owner-scoped navigation (v1.5.0)
 
 The rebrand centralizes public identity and bundles original static artwork.
@@ -201,8 +239,10 @@ establish exchange-side correctness.
    blindly; holdings may remain exposed until evidence becomes available.
 5. **Small positions can be ineligible.** A 12 USDT position cannot satisfy every
    symbol's two-leg minimum. Partial fills, commissions, price falls and precision
-   can also produce unsellable residuals. Dust remains tracked and blocks entry;
-   there is no automated dust conversion or journal-reset escape hatch.
+   can also produce unsellable residuals. Proven below-step fractions retain their
+   cost separately after tradable closure in v1.6.0. Whole-lot residues that fail
+   minimums or lack evidence still block; there is no automated dust conversion
+   or journal-reset escape hatch.
 6. **BNB valuation has defined limits.** BNB accounting is opt-in and uses actual
    charged quantities with a persisted preceding BNBUSDT trade-price reference
    within one second of the execution. This is not necessarily Binance's internal

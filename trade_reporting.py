@@ -35,11 +35,19 @@ def todays_pnl(now=None):
         f"Loss: {loss:+.4f} USDT",
         f"Net P&L: {profit + loss:+.4f} USDT",
         "",
-        "After recorded commissions. Bot trades only; open/partial positions excluded.",
-        "Completion day uses the final sell fill; each completed trade's full result is included.",
+        "After recorded commissions and cost allocated to sold quantity. Open/partial positions excluded.",
+        "Completion day uses the final sell fill; each trade's full realized result is included.",
     ]
     if any(rec.get("pnl_valuation") for rec, _ in completed):
         lines.append("BNB fees use saved USDT reference values, not an exact Binance conversion.")
+    dust_totals = em.retained_dust_totals([rec for rec, _ in completed])
+    if dust_totals:
+        lines.append("Retained dust from these completed tradable positions (not sold):")
+        for asset, totals in sorted(dust_totals.items()):
+            lines.append(
+                f"{em.fmt(totals['quantity'])} {asset} | retained cost "
+                f"{em.fmt(totals['cost_basis_usdt'])} USDT; not realized P&L"
+            )
     pending = sum(rec["state"] != "closed" for rec in records)
     if pending:
         lines.append(f"Open or reconciliation-pending records excluded: {pending}.")
