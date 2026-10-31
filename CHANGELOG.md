@@ -3,6 +3,24 @@
 Release notes describe code changes. Git commits provide the exact history.
 Account settings, keys and trade journals remain local and are ignored by Git.
 
+## 1.8.0 — 2026-10-31
+
+- Add live performance to position details/Refresh: time held, actual remaining
+  cost, reference value, estimated unrealized P&L after current sell-fee reserve,
+  realized/combined results and distance to original SL/TP levels.
+- Add owner-only `/portfolio`, dashboard and native Menu access for bot exposure,
+  free/locked USDT, watch reservations, slots, retained dust and normal risk.
+- Allocate actual entry cost once across sold and remaining net units. Preserve
+  historical BNB fee references, distinguish estimates and withhold missing data.
+- Show full planned risk reservations separately from estimated remaining-stop
+  loss; expose incomplete stop coverage and negative Manual-override budgets.
+- Detect concurrent local lifecycle/settings changes and withhold mixed totals.
+  Keep external holdings out of bot P&L/risk and dust out of realized sales.
+- Add detached, non-persisting read options to existing verified refresh/fee
+  helpers. Durable execution/recovery still uses the default persistence path.
+- Add 36 financial-report regressions plus dashboard navigation coverage.
+  Entry rules, approval, order levels, settings and journal format are unchanged.
+
 ## 1.7.0 — 2026-10-31
 
 - Add owner-only `/health` plus dashboard and native Telegram Menu access.

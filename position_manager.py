@@ -3,6 +3,7 @@
 from datetime import datetime
 
 import exit_manager as em
+import position_performance as performance
 import safety
 import trade_assistant as ta
 from trade_reporting import DUBAI
@@ -31,7 +32,7 @@ def list_positions():
         }
 
 
-def snapshot(trade_id, context):
+def snapshot(trade_id, context, *, now=None):
     with em.operation_lock():
         if context != em.CONTEXT:
             raise ValueError("Position account/environment changed; open /position again")
@@ -42,7 +43,7 @@ def snapshot(trade_id, context):
         error = ""
         if rec["state"] != "closed" and not ta.empty_watch(rec, rec["id"]):
             try:
-                em.refresh(rec)  # Read exchange evidence; never reconcile/cancel/sell here.
+                em.refresh(rec, persist=False)  # Detached view; never persist or reconcile here.
             except Exception as failure:
                 error = safety.safe_error(failure)
         price = None
@@ -64,12 +65,14 @@ def snapshot(trade_id, context):
                 or em.inventory(rec) > 0
             ):
                 action = "exit"
+        result = performance.observe(rec, price, verification_error=error, now=now)
         return {
             "record": rec,
             "context": dict(em.CONTEXT),
             "price": price,
             "error": error,
             "action": action,
+            "performance": result,
         }
 
 
@@ -108,7 +111,10 @@ def details_text(view):
         f"Status: {state}",
         "",
     ]
-    buys = list(em.executions(rec, "BUY"))
+    try:
+        buys = list(em.executions(rec, "BUY"))
+    except Exception:
+        buys = []  # A failed refresh must not turn saved fills into verified performance.
     quantity = sum((em.D(t["qty"]) for t in buys), em.D(0))
     if quantity > 0:
         average = sum((em.D(t["quoteQty"]) for t in buys), em.D(0)) / quantity
@@ -144,8 +150,13 @@ def details_text(view):
             em.record_protection_dust(rec, summary)
             if summary["dust"]:
                 lines.append(em.protection_dust_text(rec))
+            if left > 0 and not summary["sufficient"]:
+                lines.append(
+                    "Protection: incomplete — some tradable quantity lacks verified stop coverage. Use /health."
+                )
         if left == 0 and rec["state"] != "closed" and view["action"] != "cancel_watch":
             lines.append("No verified held quantity; entry/exit accounting may still be pending.")
+    lines.extend(performance.lines(view.get("performance")))
     if view["error"]:
         lines += [
             "",

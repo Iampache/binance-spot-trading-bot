@@ -1,4 +1,29 @@
-# NEXVANT: recoverable Spot positions, health diagnostics and retained-dust accounting
+# NEXVANT: recoverable Spot positions with live performance, portfolio risk and diagnostics
+
+Position details previously lacked net performance on remaining inventory and an
+aggregate view of cash/risk commitments. V1.8.0 adds on-request position valuations
+and owner-only `/portfolio` through the dashboard and Telegram Menu. Position
+details/Refresh show time held, actual remaining acquisition cost, reference value,
+estimated net unrealized P&L, actual realized result, their combined estimate and
+distance to original SL/TP levels. Partial sales allocate cost once; price crossing
+never invents a fill. Fully sold records awaiting closure have a flat display.
+
+Portfolio shows bot holdings/per-position results, whole-account free/locked USDT,
+watch cash reservations, trade slots/cap, full active planned-risk reservation,
+retained dust/cost, UTC realized loss, remaining normal budget, 1% sizing reference
+and hypothetical loss on remaining holdings at original stops. Risk reservations
+retain the existing conservative full-plan policy after TP1. Incomplete stop
+coverage and negative Manual-override budgets remain visible. External holdings
+are excluded from bot valuation; closed dust is not treated as an active position
+or invented sale. Missing metrics or concurrent lifecycle/settings changes withhold
+affected totals rather than reporting a misleading subtotal.
+
+Detached views use the verified refresh/fee helpers with `persist=False`; execution
+and recovery retain default durable persistence, ownership checks and approvals.
+Historical BNB fees use fill-time references, future sell fees use a fresh current
+conservative reserve, and absent evidence is not replaced by zero/stale plan fees.
+Reports cannot submit/cancel/reprice orders, write journals, import manual holdings
+or change settings. No journal migration, dependency or background polling is added.
 
 Running threads and generic reconciliation warnings previously gave no clear
 view of successful monitoring versus repeated failures. V1.7.0 adds owner-only
@@ -58,8 +83,11 @@ choice; the coin's strategy checks remain. New Listings awaits a verified source
 Normal policy retains Spot USDT, 10M turnover, 1% sizing and the 3 USDT daily-risk
 budget. Manual risk exceptions remain explicit; every new buy requires approval.
 
-Validation: **590 passed, 3 native Windows skips**, three upstream warnings.
-Ruff lint/format, Bandit, dependency and whitespace checks pass. Thirty-two health
+Validation: **627 passed, 3 native Windows skips**, three upstream warnings.
+Ruff lint/format, Bandit, dependency and whitespace checks pass. Thirty-six new
+financial-report cases plus dashboard coverage independently verify cash-flow/
+cost allocation, partial exits, fees, unknown data, reservations, ownership,
+concurrency, day boundaries, negative budgets and read-only behavior. Thirty-two health
 cases plus dashboard coverage verify read-only diagnosis, real worker loops,
 stale/missing/error states, account/local/order failures, concurrent state changes,
 entry gates, dust, authorization and restart history. Nineteen dust regressions

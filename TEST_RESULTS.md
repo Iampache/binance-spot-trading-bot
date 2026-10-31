@@ -1,9 +1,13 @@
 # Offline validation results
 
-Latest v1.7.0 result: **590 passed, 3 native Windows skips**, three upstream
+Latest v1.8.0 result: **627 passed, 3 native Windows skips**, three upstream
 deprecation warnings. Ruff lint/format, Bandit, dependency and whitespace checks
 pass. The sections below retain earlier run history; the latest regression
 details are recorded at the end.
+
+V1.8.0 adds 17 position-performance and 19 portfolio cases plus dashboard
+navigation. Independent cash-flow assertions verify cost allocation and partial
+exit totals; read-only assertions forbid journal writes and exchange mutations.
 
 V1.7.0 adds 32 health-report/observation cases plus the dashboard health shortcut.
 Read-only diagnosis cannot invoke recovery/planning, acquire the trading lock or
@@ -705,3 +709,41 @@ pass. The 33 added cases include the navigation case. No production credentials,
 live Binance account, Telegram service or real orders were accessed. Check
 history is process-local, open-order reads are not full fill/fee reconciliation,
 and this evidence does not establish live availability or defect-free behavior.
+
+## Live position performance and portfolio risk (v1.8.0)
+
+Seventeen `tests/test_position_performance.py` cases independently reconcile
+reference P&L against cash paid/received and owned-unit balances. Coverage includes
+winning/losing marks, time held, unrelated holdings, partial TP1 cost allocation,
+actual base fees, fill-time BNB references despite changed current BNB price,
+missing historical/current fees, invalid prices, failed execution reads, price
+crossing without a fill, watches, fully sold positions awaiting closure, closed
+dust, future entry timestamps and read-only operation. A new flat-state case
+ensures no absent sell-fee rate is formatted after inventory reaches zero.
+
+Nineteen `tests/test_portfolio_reporting.py` cases cover separate account free/
+locked cash, multiple filled pairs plus an unfilled watch, agreement with the
+next normal plan's cash/risk reservations, partial exits, completed UTC losses
+versus active-trade P&L, missing quotes/fees/account/execution data, incomplete
+stop coverage, concurrent settings changes, retained dust, negative Manual risk
+budgets, UTC versus Dubai day boundaries, authorization, corrupt local records
+and long-message chunking without consuming approval/form state. The dashboard
+navigation case exercises the real `/portfolio` handler and existing Menu/cache
+and welcome-caption checks remain passing.
+
+Report reads compare persisted JSON bytes and exchange mutation counts before/
+after; forbidden hooks reject planning, recovery, journal writes, submissions,
+cancellations and emergency sales. Historical fee references remain on detached
+copies. Existing default-persistence crash/recovery tests still pass, including
+durable acquired quantity before an execution-history failure. Partial exits
+keep the original policy's full risk reservation rather than silently freeing it.
+Incomplete components make their aggregate unavailable rather than showing a
+false subtotal. Reference prices do not become fill evidence or executable quotes.
+
+Final full suite: **627 passed, 3 native Windows skips**, three upstream
+deprecation warnings. Ruff lint/format, Bandit, `pip check` and whitespace checks
+pass. The 37 added cases include 36 financial-report cases and one dashboard
+case. Synthetic SDK transport and forbidden sockets/HTTP remain in force; no
+production credentials, live Binance, Telegram service or real orders were used.
+These checks do not validate live fills, profitability or an exchange-enforced
+loss cap. Runtime journals/settings and approval requirements are preserved.

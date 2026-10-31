@@ -2,6 +2,60 @@
 
 Binance Spot trading assistant with Telegram control. Concept & developed by Fazil.
 
+## Live position performance and portfolio risk (v1.8.0)
+
+Send `/position`, select a trade and use **Refresh** to update its performance.
+The details now show time held, remaining acquisition cost, reference market
+value, estimated unrealized P&L in USDT/percent after a sell-fee reserve, actual
+realized P&L to date, their combined estimate and the percentage move from the
+reference price to SL/TP1/TP2. Crossing a displayed target never counts as a fill;
+target status still comes from exchange execution evidence. A fully sold trade
+awaiting monitor closure displays its realized result without inventing another
+sale. Holding duration stops at the final fill when inventory is flat.
+
+Remaining cost is actual acquisition cost (including supported actual fees)
+allocated to remaining net units. The sold portion's cost is allocated once to
+realized P&L, so TP1 profit is not counted again in the remaining estimate. Actual
+BNB fees use validated historical references at fill time; current BNB prices
+never replace missing history. Future sell fees use the current conservative
+commission reserve, not a stale approved fee or an assumed zero. Missing price,
+fee or execution evidence makes the affected metric unavailable.
+
+Send `/portfolio` or tap **Portfolio risk** on `/start` to view:
+
+- Occupied/free trade slots, entry-watch count and the per-trade investment cap.
+- Account-wide free/locked USDT, funds reserved for unfilled bot watches and
+  free USDT after those reservations. Locked USDT is not added to spendable cash.
+- Cost/value of remaining bot holdings, estimated net unrealized P&L and actual
+  realized P&L on active trades, with per-position summaries.
+- Full planned risk reserved for active trades/watches, retained-dust cost,
+  net realized loss used today in UTC and the normal daily budget balance.
+- The 1% sizing reference, normal new-trade risk allowance before plan checks,
+  and a separate estimated loss on remaining holdings at original stops.
+
+The full original plan risk remains reserved after TP1, matching existing entry
+policy. Stop scenarios describe hypothetical fills at original levels; gaps,
+slippage, fees and incomplete protection can make actual losses larger. Incomplete
+stop coverage is explicitly reported. Manual's existing override can leave the
+normal budget negative; the report shows that rather than hiding it as zero.
+Free slots or positive budget do not authorize an entry; use `/health` for
+blockers and approve a fresh validated plan before every buy.
+
+Values update on request, using ticker reference prices rather than executable
+sell quotes. Active fractional units are included in marked value and remain
+unsold. Closed retained dust and its acquisition cost are listed separately;
+they use no active slot and create no invented realized P&L. External Binance
+positions are excluded from bot P&L/risk, while USDT balances cover the account.
+An incomplete position valuation makes the affected aggregate unavailable rather
+than showing a misleading subtotal. Concurrent local lifecycle/settings changes
+also withhold totals and ask for a refresh. Dubai timestamps do not change the
+UTC risk-accounting day; `/pnl` retains its completed-trade Dubai-day report.
+
+These views only read detached exchange/journal snapshots. They do not submit,
+cancel, close or reprice orders, persist fill/fee updates, or change risk settings.
+The monitor retains normal durable reconciliation. Keep the same `runtime_state`
+when upgrading; no journal migration or new dependency is required.
+
 ## Bot health (v1.7.0)
 
 Send `/health` or tap **Bot health** on `/start`. The owner-only report shows:
@@ -91,7 +145,7 @@ included in [assets/nexvant-welcome.png](assets/nexvant-welcome.png) and
 
 After pulling and restarting the assistant, send `/start` for a banner dashboard:
 **Discover tokens**, **Check a coin**, **Positions**, **Today's P&L**, **Trading
-setup**, **Account status**, **Bot health** and **All commands**. Buttons open the existing
+setup**, **Account status**, **Portfolio risk**, **Bot health** and **All commands**. Buttons open the existing
 owner-authorized flows. `/help` retains the full guide; trade approvals and exit
 confirmations remain on their own proposal/position messages. Welcome artwork is
 sent at startup or on `/start`, not on every alert. Missing/rejected welcome images

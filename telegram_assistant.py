@@ -45,6 +45,7 @@ import bot_health
 import entry_scanner as sc
 import exit_manager as em
 import market_discovery as discovery
+import portfolio_reporting
 import position_manager as positions
 import runtime_health
 import safety
@@ -92,6 +93,7 @@ HELP = (
     "/status — balance, bot positions, stop coverage and entry watches\n"
     "/health — exchange checks, monitoring and entry blockers\n"
     "/position or /positions — numbered bot positions, details and confirmed exit\n"
+    "/portfolio — bot holdings, estimated P&L, cash reservations and risk overview\n"
     "/setup — change maximum active trades and per-trade investment cap\n"
     "/pnl — today's completed bot-trade profit/loss (Dubai time)\n"
     "/showpr or SHOW PR — latest saved proposal/candidate; view only\n"
@@ -1096,6 +1098,16 @@ def handle_message(msg):
             say(trade_reporting.todays_pnl())
         except Exception as error:
             say("P&L unavailable: verified trade/fee records could not be read. " + safe(error))
+    elif command == "/portfolio":
+        try:
+            report = portfolio_reporting.report()
+            for start in range(0, len(report), 3500):
+                say(report[start : start + 3500])
+        except Exception as error:
+            say(
+                "Portfolio unavailable: verified trade/settings records could not be read. "
+                + safe(error)
+            )
     elif command == "/discover":
         state.clear()
         parts = text.split(None, 1)
@@ -1873,6 +1885,7 @@ def startup_text():
         "/pnl — today's completed trade results\n"
         "/status — view positions and protection\n"
         "/health — check monitoring and entry blockers\n"
+        "/portfolio — view bot exposure and risk\n"
         "/position — view a bot trade or request an exit\n"
         "/help — view all commands"
     )

@@ -1,6 +1,6 @@
 # NEXVANT algorithmic proposal design
 
-Display version: 1.7.0. Strategy identity: `atr-structure-v2`.
+Display version: 1.8.0. Strategy identity: `atr-structure-v2`.
 Reviewed public documentation on 31 October 2026 (Asia/Dubai).
 
 This is a deterministic rules-based proposal generator, not a trained AI model,
@@ -10,6 +10,18 @@ correctly reject every current symbol if the coin's own setup fails. Telegram
 approval remains mandatory, as explicitly confirmed by the account owner.
 
 ## User control
+
+V1.8.0 adds reference-valued position performance and `/portfolio`. Net acquisition
+cost includes actual supported fees, with base fees reflected in net units. Cost
+is allocated pro rata to sold versus remaining units, so realized and unrealized
+results do not double count TP1. Remaining marked P&L subtracts the current
+conservative sell-fee reserve from reference value; historical BNB acquisition
+fees retain fill-time reference valuation. This is not an executable exit quote.
+Portfolio risk shows the existing full active-plan/watch reservation and retained
+dust cost, UTC net realized loss and remaining 3 USDT budget. A separate original
+stop scenario does not alter the reservation or guarantee protection/loss limits.
+All values are observational; no entry/exit formula, approval or journal schema
+changes. Missing evidence and concurrent state changes withhold affected totals.
 
 V1.7.0 adds read-only `/health` observations for account/order reads, monitors,
 scanner progress, local state and entry blockers. These observations neither

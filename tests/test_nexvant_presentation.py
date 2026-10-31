@@ -87,6 +87,7 @@ def test_telegram_photo_rejection_falls_back_without_exposing_transport_errors(
         ("discover", "Discover tokens"),
         ("check", "Which coin?"),
         ("positions", "No active bot positions"),
+        ("portfolio", "NEXVANT | PORTFOLIO"),
         ("pnl", "completed trades"),
         ("setup", "Trading setup"),
         ("status", "USDT free:"),

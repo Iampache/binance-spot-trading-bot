@@ -113,8 +113,11 @@ def order_issues(records, opened):
     return list(dict.fromkeys(issues))
 
 
-def normal_budget(records):
-    today = datetime.now(timezone.utc).date()
+def normal_budget(records, *, now=None):
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        raise ValueError("Explicit report timezone required")
+    today = now.astimezone(timezone.utc).date()
     realized = em.D(0)
     reserve = em.D(0)
     for rec in records:

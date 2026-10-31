@@ -10,6 +10,7 @@ COMMANDS = [
     {"command": "discover", "description": "Discover USDT Spot tokens"},
     {"command": "check", "description": "Check a coin and review a setup"},
     {"command": "position", "description": "View bot positions or request an exit"},
+    {"command": "portfolio", "description": "View bot holdings, estimated P&L and risk"},
     {"command": "pnl", "description": "View completed-trade P&L for today"},
     {"command": "setup", "description": "Change your trading limits"},
     {"command": "status", "description": "View balances and protection"},
@@ -22,6 +23,7 @@ HOME_ACTIONS = {
     "discover": "/discover",
     "check": "/check",
     "positions": "/position",
+    "portfolio": "/portfolio",
     "pnl": "/pnl",
     "setup": "/setup",
     "status": "/status",
@@ -35,7 +37,8 @@ def home_keyboard():
         [("🔎 Discover tokens", "discover"), ("📊 Check a coin", "check")],
         [("💼 Positions", "positions"), ("📈 Today's P&L", "pnl")],
         [("⚙️ Trading setup", "setup"), ("🛡️ Account status", "status")],
-        [("🩺 Bot health", "health"), ("☰ All commands", "help")],
+        [("📊 Portfolio risk", "portfolio"), ("🩺 Bot health", "health")],
+        [("☰ All commands", "help")],
     ]
     return {
         "inline_keyboard": [

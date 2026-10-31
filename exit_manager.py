@@ -616,7 +616,7 @@ def trades_for(order, symbol):
     return cleaned
 
 
-def refresh_order(rec, item):
+def refresh_order(rec, item, *, persist=True):
     if item.get("local_rejection"):
         return item
     result = ex.order(
@@ -665,7 +665,8 @@ def refresh_order(rec, item):
         orderId=result["orderId"],
         evidence_pending=True,
     )
-    save_trade(rec)
+    if persist:
+        save_trade(rec)
     rows = trades_for(result, rec["symbol"])
     # Retain already-recorded historical reference evidence across read retries.
     previous = {row["id"]: row for row in item["trades"]}
@@ -674,7 +675,8 @@ def refresh_order(rec, item):
         if old.get("fee_valuation") and all(old.get(key) == value for key, value in row.items()):
             row["fee_valuation"] = old["fee_valuation"]
     item.update(trades=rows, evidence_pending=False)
-    save_trade(rec)
+    if persist:
+        save_trade(rec)
     return item
 
 
@@ -773,7 +775,7 @@ def inventory(rec):
     return acquired - sold
 
 
-def refresh_lists(rec):
+def refresh_lists(rec, *, persist=True):
     for item in rec["oco"]:
         if item.get("local_rejection"):
             continue
@@ -797,8 +799,9 @@ def refresh_lists(rec):
             order = next((o for o in rec["orders"] if o["cid"] == report["clientOrderId"]), None)
             if order is None:
                 raise ex.OwnershipError("Missing persisted OCO leg")
-            refresh_order(rec, order)
-        save_trade(rec)
+            refresh_order(rec, order, persist=persist)
+        if persist:
+            save_trade(rec)
 
 
 def coverage(rec):
@@ -954,14 +957,14 @@ def submit_protection(rec, qty, t1, t2, stop, f):
     save_trade(rec)
 
 
-def refresh(rec):
+def refresh(rec, *, persist=True):
     initialize()
     if rec["context"] != CONTEXT:
         raise ex.OwnershipError("Account mismatch")
     for item in rec["orders"]:
         if item["purpose"] not in ("target", "stop"):
-            refresh_order(rec, item)
-    refresh_lists(rec)
+            refresh_order(rec, item, persist=persist)
+    refresh_lists(rec, persist=persist)
     # Orphaned intentions from a crash while preparing an OCO were never submitted.
     listed = {cid for item in rec["oco"] for cid in item["order_cids"]}
     for item in rec["orders"]:
@@ -969,7 +972,8 @@ def refresh(rec):
             if item["submitted"]:
                 raise ex.Uncertain("Orphaned submitted OCO leg")
             item.update(status="REJECTED", local_rejection=True)
-    save_trade(rec)
+    if persist:
+        save_trade(rec)
 
 
 def valid_bnb_candle_reference(reference, fill_time):
@@ -1091,7 +1095,7 @@ def bnb_fee_reference(fill_time):
     }
 
 
-def attach_fee_valuations(rec):
+def attach_fee_valuations(rec, *, persist=True):
     """After exits, persist reference evidence; missing USD valuation never delays protection."""
     references = {}
     for order in rec["orders"]:
@@ -1113,7 +1117,8 @@ def attach_fee_valuations(rec):
             if timestamp not in references:
                 references[timestamp] = bnb_fee_reference(timestamp)
             row["fee_valuation"] = dict(references[timestamp])
-            save_trade(rec)
+            if persist:
+                save_trade(rec)
 
 
 def fee_in_quote(row, base):

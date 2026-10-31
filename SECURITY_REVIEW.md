@@ -7,6 +7,43 @@ agent, plus independent automated static analysis using Bandit. It is **not an
 independent human or third-party audit**, and is not certification for live trading.
 No Binance account, production credential or Telegram integration was accessed.
 
+## Live performance and portfolio reporting (v1.8.0)
+
+The existing owner/chat checks guard `/portfolio` and its dashboard/native Menu
+entry. Position details keep immutable record/account binding and the separate
+expiring exit confirmation. Neither report can approve a trade, close/reprice
+orders, import external holdings or change settings. Long portfolio messages are
+chunked, and informational commands preserve pending approval/form state.
+
+Verified refresh and fee-reference helpers now accept `persist=False` for detached
+report snapshots. Execution/recovery defaults remain `persist=True`, including
+persisting known acquired quantity before reading potentially unavailable fill
+history. Read-only position views no longer persist refresh results. Actual fill
+and fee identity checks remain in force, and historical BNB references are added
+only to the detached copy. Missing references are not replaced with zero or a
+current conversion. Normal lifecycle reconciliation remains the monitor's job.
+
+Reference valuation uses bot-owned net inventory and allocates actual acquisition
+cost between sold/remaining units. Actual realized P&L is separate from estimated
+remaining P&L after a current conservative commission reserve. Active fractional
+units are marked as unsold reference value; closed dust is excluded from active
+valuation and retains its separate cost/risk reservation. Crossing a target price
+cannot invent a fill, and unrelated holdings never increase marked bot quantity.
+
+Portfolio cash is explicitly account-wide; exposure/P&L/risk is bot-only. Watch
+cash, locked USDT, planned risk and current hypothetical stop loss remain distinct.
+Full plan risk stays reserved after partial exits, preserving current policy.
+Negative Manual-override budgets are visible. Incomplete actual stop coverage is
+reported rather than presenting the original-stop scenario as verified protection.
+Invalid local records abort the report, and missing quotes/fees/executions withhold
+affected totals. Optimistic rechecks flag concurrent local state/settings changes;
+this is not an atomic exchange snapshot. Reports use local operation locks during
+position reads and normal bounded API timeouts, with no new background polling.
+
+Thirty-six financial-report cases and dashboard navigation pass offline. Existing
+durability/recovery/exit/approval cases remain passing. These implementing-agent
+checks are not an independent audit, live integration or proof of loss limits.
+
 ## Read-only health and worker observations (v1.7.0)
 
 `/health`, its dashboard action and the native command retain the configured
