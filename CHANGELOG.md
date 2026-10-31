@@ -3,6 +3,21 @@
 Release notes describe code changes. Git commits provide the exact history.
 Account settings, keys and trade journals remain local and are ignored by Git.
 
+## 1.7.0 — 2026-10-31
+
+- Add owner-only `/health` plus dashboard and native Telegram Menu access.
+- Report authenticated account/open-order read freshness, version/environment,
+  uptime, per-trade monitor progress/success/errors and scanner cycle health.
+- Distinguish stopped, retrying and delayed workers; retain prior successful
+  timestamps when later checks fail, and reset observations on process restart.
+- Explain account-wide and normal-risk entry blockers separately. Compare current
+  open orders with saved ownership; flag concurrent state changes for refresh.
+- Treat full slots and retained dust separately from health faults. Preserve the
+  explicit Manual policy and all existing execution/approval requirements.
+- Keep diagnosis read-only, without journal writes, order changes, automatic
+  recovery, new background exchange polling or waiting on the trading lock.
+- Add 32 health regressions and dashboard coverage for the new shortcut.
+
 ## 1.6.0 — 2026-10-31
 
 - Fix repeated reconciliation of a base-fee fraction below Binance's quantity

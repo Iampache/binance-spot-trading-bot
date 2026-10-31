@@ -41,10 +41,12 @@ import requests
 from binance.exceptions import BinanceAPIException
 
 import algorithmic_planner as algo
+import bot_health
 import entry_scanner as sc
 import exit_manager as em
 import market_discovery as discovery
 import position_manager as positions
+import runtime_health
 import safety
 import shutdown_control
 import telegram_presentation as presentation
@@ -88,6 +90,7 @@ HELP = (
     "Full pairs such as ZROUSDT or ZRO/USDT also work.\n"
     "/check_ticker or /check-ticker — aliases for /check\n"
     "/status — balance, bot positions, stop coverage and entry watches\n"
+    "/health — exchange checks, monitoring and entry blockers\n"
     "/position or /positions — numbered bot positions, details and confirmed exit\n"
     "/setup — change maximum active trades and per-trade investment cap\n"
     "/pnl — today's completed bot-trade profit/loss (Dubai time)\n"
@@ -1031,6 +1034,13 @@ def handle_message(msg):
         send_welcome()
     elif command == "/help":
         say(HELP)
+    elif command == "/health":
+        try:
+            report = bot_health.report(auto_scan=AUTO_SCAN)
+            for start in range(0, len(report), 3500):
+                say(report[start : start + 3500])
+        except Exception as error:
+            say("Health report unavailable: " + safe(error) + ". No orders changed.")
     elif low.startswith("/cancel"):
         state.clear()
         with pend_lock:
@@ -1836,12 +1846,16 @@ def scan_once():
 
 
 def scanner_loop():
-    while not em.STOP.is_set():
-        try:
-            scan_once()
-        except Exception as e:
-            sc.log.warning(f"Scan error: {safe(e)}")
-        em.STOP.wait(900 - (time.time() % 900) + 10)
+    with runtime_health.worker("scanner") as observation:
+        while not em.STOP.is_set():
+            observation.attempt()
+            try:
+                scan_once()
+                observation.success()
+            except Exception as e:
+                observation.failure(e)
+                sc.log.warning(f"Scan error: {safe(e)}")
+            em.STOP.wait(900 - (time.time() % 900) + 10)
 
 
 def startup_status():
@@ -1858,6 +1872,7 @@ def startup_text():
         "/setup — change trading limits\n"
         "/pnl — today's completed trade results\n"
         "/status — view positions and protection\n"
+        "/health — check monitoring and entry blockers\n"
         "/position — view a bot trade or request an exit\n"
         "/help — view all commands"
     )
@@ -1993,6 +2008,7 @@ def main():
     if not TOKEN or not CHAT_ID:
         raise SystemExit("Telegram configuration missing")
     em.STOP.clear()
+    runtime_health.reset()
     restore_signals = shutdown_control.install(request_shutdown)
     lock = None
     try:

@@ -1,9 +1,13 @@
 # Offline validation results
 
-Latest v1.6.0 result: **557 passed, 3 native Windows skips**, three upstream
+Latest v1.7.0 result: **590 passed, 3 native Windows skips**, three upstream
 deprecation warnings. Ruff lint/format, Bandit, dependency and whitespace checks
 pass. The sections below retain earlier run history; the latest regression
 details are recorded at the end.
+
+V1.7.0 adds 32 health-report/observation cases plus the dashboard health shortcut.
+Read-only diagnosis cannot invoke recovery/planning, acquire the trading lock or
+write a journal. Worker instrumentation retains the existing recovery behavior.
 
 V1.6.0 adds 19 below-quantity-step recovery/accounting regressions. One earlier
 regression intentionally changes its expectation under the owner's explicit
@@ -671,3 +675,33 @@ deprecation warnings. Ruff lint/format, Bandit, `pip check` and `git diff --chec
 pass. All exchange/Telegram operations above are offline simulations with sockets
 and HTTP forbidden. The live journal was not accessed; real exchange behavior,
 Windows timing and zero defects are not established by this suite.
+
+## Read-only bot health and worker observations (v1.7.0)
+
+Thirty-two cases in `tests/test_health.py` exercise fresh authenticated reads,
+idle operation, actual monitor success/failure and scanner-loop instrumentation,
+missing/retrying/stopped/delayed workers, monotonic elapsed time, retained prior
+success when a later read fails, account mismatch and permissions, corrupt local
+state, changed/missing/external open orders, state changes during a check,
+retained dust and a live fractional tail, normal risk versus Manual exceptions,
+funds/live/shutdown gates, owner/chat authorization, command chunking without
+consuming forms/approvals, independent monitor identities and restart reset.
+A replacement exit monitor does not hide the same trade's earlier success.
+Dashboard coverage exercises the new owner-only health shortcut through the
+real handler, and existing Menu/cache/caption-size cases remain passing.
+
+Read-only assertions compare actual persisted JSON bytes and exchange mutation
+counts. Forbidden replacements for planning, recovery, journal writes and the
+trading operation lock ensure diagnosis cannot repair/change trades or wait for
+that lock. Account and order data use the installed SDK's synthetic transport;
+all sockets and HTTP remain forbidden. Invalid/missing evidence is unavailable,
+not a zero balance, empty position list or fresh success. Tests observe workers
+as alive during actual loop waits and stopped after loop return; delay is a
+progress warning rather than proof of a dead thread.
+
+Final full suite: **590 passed, 3 native Windows skips**, three upstream
+deprecation warnings. Ruff lint/format, Bandit, `pip check` and whitespace checks
+pass. The 33 added cases include the navigation case. No production credentials,
+live Binance account, Telegram service or real orders were accessed. Check
+history is process-local, open-order reads are not full fill/fee reconciliation,
+and this evidence does not establish live availability or defect-free behavior.

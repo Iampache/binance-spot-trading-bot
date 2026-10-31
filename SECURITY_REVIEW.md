@@ -7,6 +7,42 @@ agent, plus independent automated static analysis using Bandit. It is **not an
 independent human or third-party audit**, and is not certification for live trading.
 No Binance account, production credential or Telegram integration was accessed.
 
+## Read-only health and worker observations (v1.7.0)
+
+`/health`, its dashboard action and the native command retain the configured
+sender/chat authorization. The report reads the existing account-scoped journal
+and settings, makes authenticated account/open-order reads, verifies Spot account
+identity, and compares open orders with saved ownership/levels/quantities/status.
+It does not invoke planning/recovery, acquire the trading operation lock, modify
+journals or submit/cancel orders. No new write retry or trading permission is
+introduced; diagnostic success cannot authorize a buy. Current policy and final
+approval still govern execution. External manual orders are not adopted.
+
+Monitor/scanner instrumentation stores process-local progress, successful checks,
+safe errors and actual thread liveness under a small separate lock. A thread
+alive beyond its expected progress window is labeled delayed, not declared dead.
+Stopped monitors are distinguishable from no position requiring a monitor.
+Starting another monitor for the same immutable trade retains its prior observed
+success. A subsequent failed account check retains the old success timestamp
+without presenting it as a current verified account read. Restart clears these
+observations without touching durable execution/accounting state.
+
+Optimistic journal/settings comparison flags lifecycle changes during the check
+for refresh rather than claiming an atomic account snapshot. Saved inventory and
+coverage remain explicitly saved evidence; open-order reads do not replace full
+fill/history/fee reconciliation. Invalid local state, exchange failures and
+comparison errors cannot become a false healthy zero. Diagnostic strings use
+fixed explanations and existing private-error-safe rendering. No UID, credentials,
+raw request data or filesystem paths are added to report output.
+
+Full slots, funds and normal daily-risk exhaustion are distinguished from broken
+workers. Manual exceptions remain explicit; unknown protection/accounting is
+still an all-mode blocker. The health report is observational and does not add
+automatic gating or restart/repair. Freshness is limited to this process and the
+successful read/cycle identified; network timeouts and external account activity
+still apply. Thirty-two health regressions plus dashboard coverage pass offline;
+this implementing-agent review is not an independent audit.
+
 ## Fractional inventory and retained-cost review (v1.6.0)
 
 The reported PEPE state was reproduced through the pinned SDK transport:

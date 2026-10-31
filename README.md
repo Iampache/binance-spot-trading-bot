@@ -2,6 +2,45 @@
 
 Binance Spot trading assistant with Telegram control. Concept & developed by Fazil.
 
+## Bot health (v1.7.0)
+
+Send `/health` or tap **Bot health** on `/start`. The owner-only report shows:
+
+- Version, environment, process uptime and Dubai-time check timestamps.
+- A fresh authenticated account/open-order check and the last successful check
+  in this process. A later failure keeps the old timestamp visible but marks the
+  current read unavailable; it does not present cached data as current.
+- Each active trade's monitor: running, retrying, delayed or stopped, with its
+  immutable trade ID, last successful reconciliation and safe failure reason.
+- Automatic scanner status and its last successful cycle. Deliberately disabled
+  scanning is shown as OFF; on-demand checks remain available.
+- Verified local limits, occupied slots, saved inventory/stop coverage, retained
+  dust, available USDT and the normal daily risk budget.
+- Account-wide blockers such as full slots, unresolved protection/accounting,
+  invalid settings/journals, changed/missing or unrecognized open orders, funds,
+  exchange permissions, live-entry configuration and shutdown. Normal daily-risk
+  gates are shown separately because Manual has an explicit risk override.
+
+**Health OK does not mean a trade can be entered.** Full slots and exhausted
+normal risk can be expected operating limits while the bot works correctly.
+Coin-specific strategy, exchange minimums, price, fees and final approval still
+apply to every fresh plan. A disabled/stopped scanner is distinct from a position
+monitor. A thread that is alive but has not progressed for over 180 seconds is
+shown as delayed; scanner delay uses 20 minutes, beyond its normal 15-minute cycle.
+These observations do not prove a deadlock or automatically restart workers.
+
+The report performs reads only: it never submits/cancels orders, imports manual
+Binance purchases, repairs records, or changes entry rules. It compares open
+orders with the journal and flags state changing during the check for a refresh.
+Saved quantities are labeled as saved; this account/open-order check does not
+replace full fill/fee reconciliation by the monitor. It avoids the trading
+operation lock, so it does not wait for a recovery operation to release that
+lock. Normal network timeouts still apply. Long reports are split into messages.
+
+Heartbeat/check history is process-local and resets on restart. Durable trading
+records and settings remain in the same account-scoped `runtime_state`; no
+migration/reset is required. No extra background exchange polling is added.
+
 ## Fractional PEPE recovery and retained dust (v1.6.0)
 
 The reported PEPE position had **1,723,228.05 PEPE** remaining but protective
@@ -52,7 +91,7 @@ included in [assets/nexvant-welcome.png](assets/nexvant-welcome.png) and
 
 After pulling and restarting the assistant, send `/start` for a banner dashboard:
 **Discover tokens**, **Check a coin**, **Positions**, **Today's P&L**, **Trading
-setup**, **Account status** and **All commands**. Buttons open the existing
+setup**, **Account status**, **Bot health** and **All commands**. Buttons open the existing
 owner-authorized flows. `/help` retains the full guide; trade approvals and exit
 confirmations remain on their own proposal/position messages. Welcome artwork is
 sent at startup or on `/start`, not on every alert. Missing/rejected welcome images

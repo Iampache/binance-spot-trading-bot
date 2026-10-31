@@ -1,6 +1,6 @@
 # NEXVANT algorithmic proposal design
 
-Display version: 1.6.0. Strategy identity: `atr-structure-v2`.
+Display version: 1.7.0. Strategy identity: `atr-structure-v2`.
 Reviewed public documentation on 31 October 2026 (Asia/Dubai).
 
 This is a deterministic rules-based proposal generator, not a trained AI model,
@@ -10,6 +10,13 @@ correctly reject every current symbol if the coin's own setup fails. Telegram
 approval remains mandatory, as explicitly confirmed by the account owner.
 
 ## User control
+
+V1.7.0 adds read-only `/health` observations for account/order reads, monitors,
+scanner progress, local state and entry blockers. These observations neither
+authorize buys nor add/bypass strategy or risk gates. Full slots and normal-risk
+exhaustion are shown separately from worker faults. Saved quantities remain
+labeled as saved until monitor reconciliation; the health check is not full
+fill/fee reconciliation or an executable approval.
 
 - **Manual:** provide ENTRY, STOP, TP1, TP2. Manual risk exceptions stay explicit.
   A local watch waits for the entry cap for up to 15 minutes. If already eligible,

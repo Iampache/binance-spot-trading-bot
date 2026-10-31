@@ -90,6 +90,7 @@ def test_telegram_photo_rejection_falls_back_without_exposing_transport_errors(
         ("pnl", "completed trades"),
         ("setup", "Trading setup"),
         ("status", "USDT free:"),
+        ("health", "NEXVANT | HEALTH"),
         ("help", "NEXVANT | Commands"),
     ],
 )

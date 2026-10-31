@@ -19,6 +19,7 @@ import requests
 from dotenv import load_dotenv
 
 import exchange as ex
+import runtime_health
 import safety
 import trading_settings as settings
 from file_locking import ProcessLock
@@ -1617,13 +1618,22 @@ def mark_attention(rec, error=None):
 
 
 def monitor_trade(rec, max_checks=None):
+    with runtime_health.worker("monitor", rec["id"]) as observation:
+        return _monitor_trade(rec, max_checks=max_checks, observation=observation)
+
+
+def _monitor_trade(rec, *, max_checks, observation):
     failures = checks = 0
     while not STOP.is_set():
+        observation.attempt()
         try:
-            if reconcile_trade(rec):
+            finished = reconcile_trade(rec)
+            observation.success()
+            if finished:
                 return
             failures = 0
         except Exception as error:
+            observation.failure(error)
             failures += 1
             try:
                 mark_attention(rec, error)

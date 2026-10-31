@@ -1,4 +1,21 @@
-# NEXVANT: recoverable Spot positions, approved controls and fractional-dust accounting
+# NEXVANT: recoverable Spot positions, health diagnostics and retained-dust accounting
+
+Running threads and generic reconciliation warnings previously gave no clear
+view of successful monitoring versus repeated failures. V1.7.0 adds owner-only
+`/health` through the dashboard and Telegram Menu. It reports current account/open
+order reads, last successful check, per-trade monitor progress/success/errors,
+scanner status, version/environment, uptime, local limits, saved coverage, funds,
+retained dust and account-wide versus normal-risk entry gates. Full trade slots
+can coexist with healthy operation; missing evidence never becomes a fresh OK.
+
+Health diagnosis uses reads and process-local observations only, without journal
+writes, trading-lock waits, order changes, automatic recovery or new background
+polling. Authenticated identity and saved order ownership are checked; lifecycle
+changes during the read are flagged for refresh. Saved quantities remain labeled
+as saved. Alive but delayed workers differ from stopped workers. Prior success
+survives a later failure within the process, and restart clears observations
+without changing durable state. Every buy still requires its existing checks and
+approval; `/health` does not adopt manual Binance orders or authorize trading.
 
 A reported PEPE trade had 1,723,228.05 coins remaining and working stops for
 1,723,228. Base commission left a 0.05 fraction below the exchange's one-coin
@@ -41,11 +58,14 @@ choice; the coin's strategy checks remain. New Listings awaits a verified source
 Normal policy retains Spot USDT, 10M turnover, 1% sizing and the 3 USDT daily-risk
 budget. Manual risk exceptions remain explicit; every new buy requires approval.
 
-Validation: **557 passed, 3 native Windows skips**, three upstream warnings.
-Ruff lint/format, Bandit, dependency and whitespace checks pass. Nineteen new
-regressions cover the exact PEPE/UNI replay, retained cost, same-pair ownership,
-whole-lot/unknown/fee/balance blockers, safe diagnostics, partial IOC fills and
-atomic-write failures. The suite forbids sockets/HTTP and uses synthetic SDK
+Validation: **590 passed, 3 native Windows skips**, three upstream warnings.
+Ruff lint/format, Bandit, dependency and whitespace checks pass. Thirty-two health
+cases plus dashboard coverage verify read-only diagnosis, real worker loops,
+stale/missing/error states, account/local/order failures, concurrent state changes,
+entry gates, dust, authorization and restart history. Nineteen dust regressions
+cover the exact PEPE/UNI replay, retained cost, same-pair ownership, whole-lot/
+unknown/fee/balance blockers, safe diagnostics, partial IOC fills and atomic-write
+failures. The suite forbids sockets/HTTP and uses synthetic SDK
 transport data. No production credentials, live Binance, Telegram service or real
 orders were used. Windows-specific behavior remains a native verification step.
 

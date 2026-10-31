@@ -12,6 +12,7 @@ import requests
 from simulator import SpotSimulator
 
 import exit_manager as em
+import runtime_health
 import telegram_assistant as tg
 
 
@@ -33,6 +34,7 @@ def offline(monkeypatch, tmp_path):
     monkeypatch.setattr(em, "alert", lambda message: None)
     monkeypatch.setattr(em, "POLL_SECONDS", 0)
     em.STOP.clear()
+    runtime_health.reset()
     tg.last_preview.clear()
     tg.pending.clear()
     tg.checks.clear()

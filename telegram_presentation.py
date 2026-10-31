@@ -13,6 +13,7 @@ COMMANDS = [
     {"command": "pnl", "description": "View completed-trade P&L for today"},
     {"command": "setup", "description": "Change your trading limits"},
     {"command": "status", "description": "View balances and protection"},
+    {"command": "health", "description": "Check monitoring and entry blockers"},
     {"command": "showpr", "description": "View the latest saved proposal"},
     {"command": "cancel", "description": "Cancel pending selections and entry watches"},
     {"command": "help", "description": "View all commands and trading modes"},
@@ -24,6 +25,7 @@ HOME_ACTIONS = {
     "pnl": "/pnl",
     "setup": "/setup",
     "status": "/status",
+    "health": "/health",
     "help": "/help",
 }
 
@@ -33,7 +35,7 @@ def home_keyboard():
         [("🔎 Discover tokens", "discover"), ("📊 Check a coin", "check")],
         [("💼 Positions", "positions"), ("📈 Today's P&L", "pnl")],
         [("⚙️ Trading setup", "setup"), ("🛡️ Account status", "status")],
-        [("☰ All commands", "help")],
+        [("🩺 Bot health", "health"), ("☰ All commands", "help")],
     ]
     return {
         "inline_keyboard": [
