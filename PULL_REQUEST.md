@@ -30,7 +30,7 @@ explicit fill-time USDT reference valuation; missing fee evidence blocks final P
 not protection/liquidation. Pending approval cancellation never removes existing
 OCOs. Active closing remains available through the existing confirmed CLI path.
 
-Validation: **345 passed, 3 native Windows skips**, three upstream deprecation
+Validation: **355 passed, 3 native Windows skips**, three upstream deprecation
 warnings; Ruff/format, Bandit, pip dependency and whitespace checks pass. Tests use
 actual SDK transport simulations with sockets/HTTP forbidden.
 See TEST_RESULTS.md for exact totals, SECURITY_REVIEW.md for the implementation
@@ -62,3 +62,7 @@ rounded stop with upward tick rounding, preserving the intended 1.5R/2.5R withou
 chasing a higher quote. Pullback resistance ceilings and approved/manual exits
 remain fixed. Distinct stop-distance and reward/risk diagnostics show the actual
 checked prices and required TP1; genuinely insufficient reward still blocks.
+
+Ticker-only /scan is now an alias for the existing single-coin /check flow. Both
+normalize ZRO to ZROUSDT; prompt/help and offline authorization/cancellation
+regressions cover the alias without changing trade execution or approval gates.

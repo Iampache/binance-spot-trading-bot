@@ -470,3 +470,15 @@ live-price chasing, manual-policy weakening or exchange minimum bypass is added.
 Final local result: **345 passed, 3 native Windows skips**, three upstream
 warnings. Ruff/format, Bandit, dependency and whitespace checks pass. No live
 account connection, production credentials or real trades were used.
+
+## Ticker-only /scan flow (v1.1.4)
+
+Ten offline cases verify /scan and /check ticker normalization, lowercase and full
+pair forms, command mentions, bare-command prompts, cancellation of late replies,
+authorized sender enforcement and exact command routing. All assert no exchange
+writes or new trade approval from the command alone. The existing help regression
+also requires /scan to be documented. Symbol suffix parsing and trading gates are
+unchanged; this exposes ticker-only input through a clearer alias and prompt.
+
+Full local suite: **355 passed, 3 native Windows skips**, three upstream warnings.
+Ruff/format, Bandit and whitespace checks pass. No live account access or trades.

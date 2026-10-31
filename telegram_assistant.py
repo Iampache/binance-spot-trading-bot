@@ -70,8 +70,9 @@ trade_lock = threading.Lock()  # one live trade being executed/managed at a time
 HELP = (
     "TRBT | Commands\n\n"
     "/help or /start — show this guide\n"
-    "/check — choose a coin\n"
-    "/check PARTI — check a coin directly (PARTI/USDT also works)\n"
+    "/check or /scan — choose a coin\n"
+    "/check ZRO or /scan ZRO — USDT is added automatically\n"
+    "Full pairs such as ZROUSDT or ZRO/USDT also work.\n"
     "/check_ticker or /check-ticker — aliases for /check\n"
     "/status — balance, bot positions, stop coverage and entry watches\n"
     "/showpr or SHOW PR — latest saved proposal/candidate; view only\n"
@@ -436,7 +437,7 @@ def run_check(raw, title="CHECK", generation=None):
     try:
         res = check_ticker(symbol)
     except requests.HTTPError:
-        say(f"{symbol} was not found on Binance Spot. Use the format BTC/USDT.")
+        say(f"{symbol} was not found on Binance Spot. Send a ticker such as BTC or BTC/USDT.")
         return
     except Exception as e:
         say(f"Check failed: {safe(e)}")
@@ -815,6 +816,7 @@ def handle_message(msg):
         return  # strangers get no reply at all
     text = msg.get("text", "").strip()
     low = text.lower().replace("-", "_")
+    command = low.split(None, 1)[0].split("@", 1)[0] if low else ""
     if " ".join(low.split()) in ("show pr", "/showpr"):
         show_last_proposal()
     elif low.startswith("/status"):
@@ -845,14 +847,14 @@ def handle_message(msg):
             f"Cancelled {watches} untriggered entry watch(es), pending proposals, manual entry and scheduled rechecks. "
             "Already submitted orders and protective OCOs remain active; /status shows them."
         )
-    elif low.startswith("/check"):
+    elif command in ("/check", "/check_ticker", "/scan"):
         parts = text.split(None, 1)
         state.clear()
         if len(parts) > 1:
             run_check(parts[1])
         else:
             state.update(step="ticker", t=time.time())
-            say("Which coin? Send the pair, for example BTC/USDT")
+            say("Which coin? Send just the ticker, for example ZRO. USDT is added automatically.")
     elif state.get("step") == "ticker" and text:
         state.clear()
         run_check(text)

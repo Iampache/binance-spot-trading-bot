@@ -562,3 +562,13 @@ A delivered scan proposal has Approve / Reject / Details buttons, and its summar
 candidate card says Awaiting approval. The three Manual / Assisted / Auto Setup
 choices are opened through `/check COIN` → `3 - Trading options`; they are not
 buttons on the automatic scanner proposal. No passing candidate buys on its own.
+
+## Ticker-only checks and /scan alias (v1.1.4)
+
+`/scan ZRO` and `/check ZRO` both analyze **ZROUSDT**. The existing ticker parser
+adds USDT when absent and preserves an existing suffix: `ZROUSDT` and `ZRO/USDT`
+also resolve to ZROUSDT. Send `/scan` or `/check` alone to receive a ticker prompt,
+then reply with just the coin name. `/scan` is a single-coin check alias, not a
+command to buy or trigger a full-universe background scan. `/help` documents it.
+Authorization, USDT-only Spot validation, market checks, approval requirements and
+position limits are unchanged. `/cancel` clears a pending ticker prompt.
