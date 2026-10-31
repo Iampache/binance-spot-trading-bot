@@ -53,3 +53,10 @@ Presentation follow-up: compact shared branding (“Concept & Developed by Fazil
 display version and Git URL; blue ticker and distinct status markers because
 Telegram cannot render custom text colors. Plain labels retain the full meaning.
 No execution-policy changes. Full offline suite remains 252 passes / 3 Windows skips.
+
+Compact Telegram decision cards now show total estimated profit at both targets
+and initial-stop loss, while full assumptions remain behind a read-only Details
+button. Live mode, manual risk exceptions and hard limits stay visible. /help and
+/start document all supported commands and button flows, including the fact that
+/cancel does not close active positions. Validation: 260 offline passes, 3 native
+Windows skips. Fee-reserved estimates do not promise live profit or stop losses.

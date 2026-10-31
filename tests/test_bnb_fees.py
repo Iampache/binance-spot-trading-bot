@@ -37,7 +37,7 @@ def test_bnb_fee_support_is_explicitly_enabled(sim, monkeypatch):
     assert plan["bnb_discount"] and plan["bnb_fee_support"]
     assert plan["fee_rate"] == D(".001")
     assert plan["discounted_fee_rate"] == D(".00075")
-    text = tg.proposal_text(sig(), plan, "")
+    text = tg.proposal_details_text(sig(), plan, "")
     assert "25.00%" in text and "reserves full fees" in text
     assert not sim.writes
 

@@ -318,3 +318,18 @@ Completion messages follow exchange verification, lock acquisition, recovery and
 Telegram validation; scanner readiness is distinguished from scan completion.
 No fake delay or additional exchange request was added. Full suite remains
 **252 passed, 3 Windows-only skips**, with three upstream warnings.
+
+## Compact approvals, fee-reserved profit estimate and complete help
+
+Eight additional offline checks cover conservative total-target profit (all entry
+cost and full reserved exit fees), negative-profit display, Details buttons that
+do not consume/renew approval, expired/canceled/unauthorized Details requests,
+and complete /help and /start command guides with the /cancel boundary. Existing
+BNB/manual-disclosure assertions now verify the full Details disclosure as well
+as visible manual exceptions on the compact approval card; no execution checks
+or financial limits were weakened.
+
+Full local result: **260 passed, 3 native Windows skips**, three upstream warnings.
+Ruff/format, Bandit, dependency and whitespace checks pass. No live accounts or
+real trades were used. The new profit display is a conservative forecast, not
+verified realized P&L; that accounting remains exchange-execution based.

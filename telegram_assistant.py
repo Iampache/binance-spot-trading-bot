@@ -44,7 +44,7 @@ import entry_scanner as sc
 import exit_manager as em
 import safety
 import trade_assistant as ta
-from branding import BRANDING
+from branding import BRANDING, VERSION
 
 TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
@@ -67,15 +67,22 @@ pend_lock = threading.Lock()
 trade_lock = threading.Lock()  # one live trade being executed/managed at a time
 
 HELP = (
-    "Commands:\n"
-    "/check  - check any coin (then send the pair, e.g. BTC/USDT)\n"
-    "/check BTC/USDT - check directly\n"
-    "/status - balance and open orders\n"
-    "SHOW PR or /showpr - latest proposal/candidate snapshot (view only)\n"
-    "/cancel - cancel what you were doing\n\n"
-    "After /check: 1 = scanner plan, 2 = recheck in 15 min, 3 = manual override. "
-    "Manual: Enter now (3 levels), Now preset (no typing), or Wait at my price (4 levels). "
-    "All require final approval. /cancel stops untriggered entry watches and pending proposals."
+    "TRBT | Commands\n\n"
+    "/help or /start — show this guide\n"
+    "/check — choose a coin\n"
+    "/check PARTI — check a coin directly (PARTI/USDT also works)\n"
+    "/check_ticker or /check-ticker — aliases for /check\n"
+    "/status — balance, bot positions, stop coverage and entry watches\n"
+    "/showpr or SHOW PR — latest saved proposal/candidate; view only\n"
+    "/cancel — cancel pending proposals, forms, rechecks and untriggered watches. "
+    "Does NOT close a position or cancel its protective OCOs.\n\n"
+    "After /check:\n"
+    "1 — scanner plan; 2 — recheck in 15 min; 3 — manual risk override\n"
+    "Enter now — type STOP TP1 TP2\n"
+    "Wait at my price — type ENTRY STOP TP1 TP2\n"
+    "Now preset — suggested levels without typing\n\n"
+    "Proposal buttons: Details (full explanation), Approve or Reject. "
+    "Buying always needs approval; one active/unresolved trade maximum."
 )
 
 
@@ -116,6 +123,53 @@ def mode_label():
 
 # ---------- proposals (Approve / Reject) ----------
 def proposal_text(sig, p, note):
+    """Compact approval card; full assumptions remain available through Details."""
+    fee = em.D(p["fee_rate"])
+    # Conservative scenario: sell only the fee-reserved two exit quantities,
+    # reserve full sell commission, subtract the entire approved entry cost.
+    proceeds = (em.D(p["half"]) * em.D(p["t1"]) + em.D(p["rest"]) * em.D(p["t2"])) * (1 - fee)
+    profit = proceeds - em.D(p["cost"])
+    mode = p.get("entry_mode", "legacy")
+    kind = "Manual" if p.get("manual_override") is True else "Automated"
+    timing = {
+        "now": "Enter now",
+        "watch": "Wait at my price (15 min)",
+        "legacy": "Immediate attempt",
+    }[mode]
+    lines = [
+        f"TRADE PROPOSAL [{mode_label()}]",
+        f"🔵 Ticker: {p['symbol']}",
+        f"Type: {kind} | {timing}",
+        "🟡 Status: Awaiting approval",
+        "",
+        f"Entry (maximum buy price): {sc.fmt(p['price'])}",
+        f"SL: {sc.fmt(p['stop'])} (-{p['risk_pct']:.1f}%)",
+        f"TP1: {sc.fmt(p['t1'])} — half",
+        f"TP2: {sc.fmt(p['t2'])} — remainder",
+        f"Size: {em.fmt(p['qty'])} | ~USD {p['cost']:.2f} incl. fee reserve",
+        "",
+        f"Est. profit if both targets fill: USD {profit:+.2f}",
+        f"Est. loss at initial stop: USD {p['loss']:.2f}",
+        "Estimates include reserved fees; fills/slippage can change results.",
+        "After TP1, the original stop stays; no automatic breakeven.",
+    ]
+    if mode == "watch":
+        lines.append("Watch cancels on observed stop breach or interruption; gaps remain possible.")
+    if p.get("manual_override") is True:
+        lines += [
+            "MANUAL RISK OVERRIDE: liquidity/strategy checks, 1% sizing and the 3 USDT daily-loss gate are bypassed.",
+            "12 USDT cap, one active trade and OCO protection remain mandatory.",
+        ]
+        count = len(p.get("override_warnings", []))
+        if count:
+            lines.append(f"Exceptions: {count} checks overridden — see Details.")
+    if "WARNING" in note.upper() or "downtrend" in note.lower():
+        lines.append("Scanner warning — see Details.")
+    lines += [f"Expires in {APPROVAL_TTL // 60} min. Details below.", f"TRBT v{VERSION} | Fazil"]
+    return "\n".join(lines)
+
+
+def proposal_details_text(sig, p, note):
     lines = [
         f"TRADE PROPOSAL [{mode_label()}]",
         f"🔵 {p['symbol']}  |  {sig['setup']}",
@@ -174,12 +228,14 @@ def send_proposal(sig, plan, note):
         generation = proposal_generation
     pid = uuid.uuid4().hex
     text = proposal_text(sig, plan, note)
+    details = proposal_details_text(sig, plan, note)
     kb = {
         "inline_keyboard": [
             [
                 {"text": f"Approve (${plan['cost']:.2f})", "callback_data": f"A:{pid}"},
                 {"text": "Reject", "callback_data": f"R:{pid}"},
-            ]
+            ],
+            [{"text": "Details", "callback_data": f"D:{pid}"}],
         ]
     }
     r = say(text, reply_markup=json.dumps(kb))
@@ -199,6 +255,7 @@ def send_proposal(sig, plan, note):
             created=time.time(),
             mid=r["result"]["message_id"],
             text=text,
+            details=details,
         )
         last_preview.update(text=text, saved_at=time.time())
     return True
@@ -567,6 +624,21 @@ def handle_callback(cb):
     action, _, pid = cb.get("data", "").partition(":")
     if action.startswith("C"):
         handle_check_callback(cb, action, pid)
+        return
+    if action == "D":
+        with pend_lock:
+            item = pending.get(pid)
+            details = item.get("details", item["text"]) if item else None
+            expired = item is None or time.time() - item["created"] > APPROVAL_TTL
+        tg(
+            "answerCallbackQuery",
+            callback_query_id=cb["id"],
+            text="Expired or already used." if expired else "Proposal details",
+        )
+        if not expired:
+            text = "DETAILS — VIEW ONLY; approve only on the original proposal.\n\n" + details
+            for start in range(0, len(text), 3500):
+                say(text[start : start + 3500])
         return
     with pend_lock:
         item = pending.pop(pid, None)

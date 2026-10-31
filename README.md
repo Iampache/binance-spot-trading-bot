@@ -369,3 +369,25 @@ lock, recovery pass, then Telegram readiness. Each success line follows the
 corresponding operation; no artificial loading delays are added. Scanner module
 readiness does not mean the first market scan is finished, and a completed
 recovery pass can still report unresolved records requiring continued monitoring.
+
+## Compact proposal cards and help
+
+The main Telegram proposal shows ticker, manual/automated type, entry mode, maximum
+buy price, SL, TP1/TP2, size/cost, estimated total profit at both targets and
+estimated loss at the initial stop. It retains the live-money label, manual risk
+exceptions, hard limits, original-stop behavior and slippage warning. **Details**
+opens the full original assumptions, scanner warnings, BNB fee information and
+specific overridden checks. Viewing Details never consumes or renews approval and
+never submits an order; expired/canceled proposals cannot be revived this way.
+
+The profit estimate credits only the two fee-reserved exit quantities at their
+target prices, reserves full exit fees and subtracts the entire entry cost with
+its fee reserve. This conservative scenario ignores leftover/dust proceeds and
+BNB discount savings. It is not realized P&L or a guaranteed profit; actual fills,
+fees, partial exits and slippage differ. The stop estimate describes the initial
+full-position stop scenario; TP1 followed by a stop has a different outcome.
+
+`/help` and `/start` list every supported command: `/check` (including direct
+coin arguments and `/check_ticker` / `/check-ticker` aliases), `/status`, `/showpr`
+/ `SHOW PR`, `/cancel`, `/help` and `/start`. They also explain proposal buttons
+and manual-entry modes. `/cancel` does not close active positions or cancel OCOs.

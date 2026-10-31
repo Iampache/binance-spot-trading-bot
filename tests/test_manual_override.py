@@ -170,10 +170,14 @@ def test_manual_proposal_discloses_overrides_before_approval(sim, monkeypatch):
     plan = ta.build_plan(manual_signal())
     text = tg.proposal_text(manual_signal(), plan, "Scanner status was WARNING")
     assert "MANUAL RISK OVERRIDE" in text
-    assert "800,000" in text
-    assert "1% sizing" in text and "daily-loss gate are bypassed" in text
+    assert "1% sizing" in text and "3 USDT daily-loss gate are bypassed" in text
+    assert "liquidity/strategy checks" in text
     assert "12 USDT cap" in text and "OCO protection remain mandatory" in text
-    assert "slippage" in text
+    assert "slippage" in text and "Exceptions:" in text
+    details = tg.proposal_details_text(manual_signal(), plan, "Scanner status was WARNING")
+    assert "800,000" in details
+    assert "Volume, spread/depth, trend/setup, reward/risk, stop-distance" in details
+    assert "daily-loss gate are bypassed" in details
 
 
 def test_manual_warning_card_uses_override_label_and_collects_levels_without_buy(sim, monkeypatch):
