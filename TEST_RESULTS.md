@@ -482,3 +482,15 @@ unchanged; this exposes ticker-only input through a clearer alias and prompt.
 
 Full local suite: **355 passed, 3 native Windows skips**, three upstream warnings.
 Ruff/format, Bandit and whitespace checks pass. No live account access or trades.
+
+## Setup-check presentation and scan consistency (v1.1.5)
+
+Two offline route regressions reproduce the reported UNI-like prices through
+/scan and /check: a 6.998 quote rejects a rounded 7.114 target with 6.916 stop,
+while a new 6.995 quote can produce a normal-risk proposal with no exchange
+writes. They verify the setup-found/pending label, reference-price wording,
+absence of SAFE TO ENTER, and that no Manual risk override is enabled. Core
+strategy, risk checks, approvals and exchange execution are unchanged.
+
+Full local result: **357 passed, 3 native Windows skips**, three upstream warnings.
+Ruff/format, Bandit and whitespace checks pass. No live account access or trades.

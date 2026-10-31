@@ -4,7 +4,7 @@ Telegram Trade Assistant: scanner proposals + on-demand /check + manual entry
 A) AUTOMATIC: scans Binance every 15 min and sends proposals with [Approve] [Reject] buttons.
 B) ON DEMAND: send /check (or /check_ticker or /check-ticker) -> it asks for the pair
    (e.g. BTC/USDT) -> it checks the coin and replies with a status:
-       SAFE TO ENTER          -> buttons: 1 Enter (shows the plan) | 3 Manual | Cancel
+       SETUP FOUND            -> buttons: 1 Review live plan | 3 Trading options | Cancel
        WARNING - WAIT 15 MIN  -> buttons: 2 Recheck in 15 min | 3 Manual | Cancel
    1 -> shows Entry / SL / TP1 / TP2 / size / $ at risk with [Approve] [Reject]
    2 -> rechecks after 15 minutes and sends you the updated status
@@ -392,17 +392,17 @@ def send_check_card(res, title="CHECK", generation=None):
     pair = f"{res['symbol'][:-4]}/USDT"
     lines = [
         f"🔵 {title}: {pair}",
-        f"Price {sc.fmt(res['price'])} | 24h {res['chg']:+.1f}% | volume ${res['qv'] / 1e6:.0f}M",
+        f"Reference price {sc.fmt(res['price'])} | 24h {res['chg']:+.1f}% | volume ${res['qv'] / 1e6:.0f}M",
         "",
     ]
     if res["status"] == "SAFE":
         lines += [
-            "🟢 STATUS: 1 - SAFE TO ENTER",
+            "🟡 STATUS: Setup found — execution checks pending",
             f"Why: {res['sig']['setup']}, RSI {res['sig']['rsi']:.0f}",
-            "(Technical rules met. Execution checks may still reject. NOT a safety guarantee.)",
+            "Chart conditions match. Request a live plan to check entry, risk, funds and exchange rules.",
         ]
         row = [
-            {"text": "1 - Enter (show plan)", "callback_data": f"C1:{cid}"},
+            {"text": "1 - Review live plan", "callback_data": f"C1:{cid}"},
             {"text": "3 - Trading options", "callback_data": f"C3:{cid}"},
         ]
     else:

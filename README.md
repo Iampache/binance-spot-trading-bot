@@ -572,3 +572,19 @@ then reply with just the coin name. `/scan` is a single-coin check alias, not a
 command to buy or trigger a full-universe background scan. `/help` documents it.
 Authorization, USDT-only Spot validation, market checks, approval requirements and
 position limits are unchanged. `/cancel` clears a pending ticker prompt.
+
+## Chart setup versus executable proposal (v1.1.5)
+
+The `/check` / `/scan` chart card now says **Setup found — execution checks
+pending**, uses an amber marker and offers **Review live plan**. Its displayed
+price is a reference snapshot, not a locked quote or safety guarantee. Both the
+background scanner and an on-demand scanner-plan request use the same normal
+risk planner; running a scan manually does not enable the Manual risk override.
+
+For example, entry 6.998, stop 6.916 and TP1 7.114 yield approximately 1.4146R,
+which correctly fails 1.5R. A later entry of 6.995 with the same stop/target yields
+about 1.5063R and can pass if the other checks also pass. Changing quotes, account
+state, fees or filters may therefore change eligibility between requests. Only
+explicitly choosing Manual mode enables its separately disclosed exceptions.
+The proposal and final pre-submission checks still bind price, quantity, cost,
+exit levels and risk and require Telegram approval. No risk threshold changed.
