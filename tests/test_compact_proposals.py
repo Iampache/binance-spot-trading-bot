@@ -114,9 +114,20 @@ def test_identity_is_only_in_startup_not_routine_telegram_output(sim, monkeypatc
 
     p = ta.build_plan(sig())
     startup = tg.startup_text()
-    assert BRANDING in startup and tg.mode_label() in startup
-    assert "Environment:" in startup and "Order approval: Required" in startup
+    assert BRANDING in startup and "Connected to Binance Spot" in startup
+    assert "Trade execution: Requires Telegram approval" in startup
+    assert "Market scanning:" in startup
     assert "REAL MONEY" not in startup and "fake money" not in startup
+    monkeypatch.setattr(tg, "AUTO_SCAN", True)
+    monkeypatch.setattr(ta, "LIVE", True)
+    assert tg.startup_status() == (
+        "Connected to Binance Spot\nMarket scanning: Active\n"
+        "Trade execution: Requires Telegram approval"
+    )
+    monkeypatch.setattr(tg, "AUTO_SCAN", False)
+    monkeypatch.setattr(ta, "LIVE", False)
+    assert "Market scanning: Disabled" in tg.startup_status()
+    assert "Connected to Binance Spot Testnet" in tg.startup_status()
     messages = []
     monkeypatch.setattr(tg, "say", lambda text, **kw: messages.append(text))
     tg.handle_message({"chat": {"id": tg.CHAT_ID}, "from": {"id": tg.CHAT_ID}, "text": "/status"})

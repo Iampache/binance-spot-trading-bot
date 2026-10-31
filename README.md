@@ -444,3 +444,16 @@ scan cadence, required order approval and the primary commands. Launcher/startup
 messages distinguish module readiness, verified exchange connection, account lock,
 position reconciliation and Telegram availability. No connection, scan, order or
 configuration logic was changed; these are presentation changes only.
+
+The approved startup status is now shared by the Telegram welcome and final
+console readiness message:
+
+```text
+Connected to Binance Spot
+Market scanning: Active
+Trade execution: Requires Telegram approval
+```
+
+Testnet explicitly says “Binance Spot Testnet.” With automatic scanning off, the
+status instead says “Disabled — use /check.” Connection text is reached only
+after exchange initialization; these labels do not change trade authorization.

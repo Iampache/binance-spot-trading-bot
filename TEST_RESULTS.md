@@ -378,3 +378,9 @@ limits, locks and recovery behavior remain unchanged.
 Full local suite: **277 passed, 3 native Windows skips**, three upstream warnings.
 Updated startup assertions also pass in the focused compact-proposal suite.
 Ruff/format, Bandit and whitespace checks pass. No live account access or trades.
+
+Approved startup status follow-up shares the exact three-line connection,
+scanning and Telegram-approval wording between welcome and console readiness.
+The existing startup regression also checks the auto-scan disabled and explicit
+Testnet variants. Full local suite: **277 passed, 3 native Windows skips**, three
+upstream warnings. No live account access or trades; trading behavior unchanged.

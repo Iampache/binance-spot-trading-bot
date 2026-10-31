@@ -869,12 +869,15 @@ def scanner_loop():
         em.STOP.wait(900 - (time.time() % 900) + 10)
 
 
+def startup_status():
+    connection = "Connected to Binance Spot" + ("" if ta.LIVE else " Testnet")
+    scanning = "Active" if AUTO_SCAN else "Disabled — use /check"
+    return f"{connection}\nMarket scanning: {scanning}\nTrade execution: Requires Telegram approval"
+
+
 def startup_text():
-    schedule = "Every 15 minutes" if AUTO_SCAN else "Off — use /check"
     return (
-        f"{BRANDING}\n\n"
-        f"TRBT is online\nEnvironment: {mode_label()}\n"
-        f"Market scans: {schedule}\nOrder approval: Required\n\n"
+        f"{BRANDING}\n\n{startup_status()}\n\n"
         "/check COIN — review a trading setup\n"
         "/status — view positions and protection\n"
         "/help — view all commands"
@@ -936,16 +939,7 @@ def _run_main():
     threading.Thread(target=em.result_notice_loop, daemon=True).start()
     if AUTO_SCAN:
         threading.Thread(target=scanner_loop, daemon=True).start()
-    print(
-        "TRBT online | "
-        + (
-            "Automatic scanning enabled; results appear in the log."
-            if AUTO_SCAN
-            else "Automatic scanning disabled; use /check."
-        )
-        + " Telegram commands available.",
-        flush=True,
-    )
+    print(startup_status(), flush=True)
 
     while True:
         try:
