@@ -3,7 +3,7 @@
 from pathlib import Path
 
 BOT_NAME = "NEXVANT"
-VERSION = "1.9.0"
+VERSION = "1.10.0"
 TAGLINE = "Your approval. Every trade."
 GIT_URL = "https://github.com/Iampache/binance-spot-trading-bot"
 BRANDING = f"{BOT_NAME} | v{VERSION}\nBinance Spot Trading Assistant\nConcept & Developed by Fazil\nGit: {GIT_URL}"

@@ -7,6 +7,51 @@ agent, plus independent automated static analysis using Bandit. It is **not an
 independent human or third-party audit**, and is not certification for live trading.
 No Binance account, production credential or Telegram integration was accessed.
 
+## Guided setup watches and session limits (v1.10.0)
+
+Owner/chat and message binding guard new controls. Scan-log navigation freezes
+the selected pair rather than approving cached levels. Setup observations have
+monotonic deadlines, account identity, settings revision and approval-generation
+checks, with a second guard after data reads and proposal delivery. Ignore, stop,
+settings changes and shutdown remove observation authority. A late Telegram
+response can require retiring an already-visible card, but cannot register a
+pending approval after cancellation/expiry. Only a delivered fresh validated
+proposal can enter the existing explicit approval lifecycle. Quiet watches never
+submit, reserve funds/slots, edit journals or cancel exchange orders.
+
+Readiness uses detached record refresh and fee accounting. It rejects unresolved
+records, inadequate protection, duplicate/full slots, account permission faults,
+ownership mismatches and insufficient actual two-leg funding before modes.
+Normal-risk checks remain distinct from Manual's explicit exceptions. Level-
+dependent checks repeat after selection and at approval; signed UID/Spot/canTrade
+validation also precedes new buys. Unknown/private API exception strings are not
+used as user-facing rejection reasons; trusted local validation reasons remain
+available with safe system remedies. Unchecked stages are never marked passed.
+
+Telegram changes now use an account/context-scoped, locked memory overlay with
+effective revision invalidation. They cannot invoke durable saving, including
+forged former permanent-save callbacks. An explanatory admin message does not
+constitute an admin authorization system. No live Helpdesk address/service is
+configured. Existing atomic durable settings/audits remain the operator baseline;
+local persistent updates do not promote unrelated temporary overrides. Failed
+writes preserve the prior state and invalid durable files still block entries.
+Actual approved limit values are compared alongside revisions, rejecting a reused
+session ordinal when its limits differ. Invalid settings do not stop startup
+recovery of existing positions; entry planning still fails closed.
+
+The terminal requires a 1–10 choice before connections; empty input selects one,
+EOF/Ctrl+C cancels, and invalid input reprompts. Monitoring waits for this answer.
+Historical saved counts up to 100 remain replayable but effective counts are
+capped at ten. Filled positions above a lowered limit remain managed. Repeated
+in-process startup clears UI authority before resetting memory revisions. This
+remains an owner-only app, not a multi-user/admin permission service.
+
+Seventy-five new offline cases exercise funding arithmetic and hard/normal gates,
+watch expiry/replacement/cancellation/settings/late-delivery races, message/owner
+binding, revision isolation/reuse, legacy replay, invalid-settings recovery and
+prompt ordering.
+No live service or new dependency is used; native Windows checks remain separate.
+
 ## Proposal-only scan notifications (v1.9.0)
 
 Automatic scanning now reaches Telegram through the existing validated proposal

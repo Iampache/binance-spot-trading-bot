@@ -517,6 +517,7 @@ def test_runtime_start_failure_stops_recovery_workers_and_releases_lock(sim, mon
 
     monkeypatch.setattr(tg, "TOKEN", "synthetic")
     monkeypatch.setattr(tg, "CHAT_ID", "synthetic")
+    monkeypatch.setattr(tg, "prompt_parallel_count", lambda: 1)
     worker = threading.Thread(target=lambda: em.STOP.wait(), daemon=False)
 
     def fail():
@@ -661,21 +662,13 @@ def test_manual_check_and_fifteen_minute_recheck_are_preserved(sim, monkeypatch)
     assert tg.checks
     cid = next(iter(tg.checks))
 
-    class Timer:
-        def __init__(self, interval, fn, args):
-            assert interval == 900
-            self.fn, self.args = fn, args
-
-        def start(self):
-            pass
-
-        def cancel(self):
-            pass
-
-    monkeypatch.setattr(tg.threading, "Timer", Timer)
+    jobs = []
+    monkeypatch.setattr(tg, "start_managed_worker", lambda job: jobs.append(job))
     tg.handle_check_callback({"id": "cb"}, "C2", cid)
-    timer = next(iter(tg.recheck_timers))
-    timer.fn(*timer.args)
+    assert len(tg.setup_watches) == 1 and not sim.writes
+    jobs[0]()  # A valid observed setup creates approval controls, never a buy.
+    assert tg.pending and not tg.setup_watches and not sim.writes
+    tg.handle_message({**message, "text": "/check FOO/USDT"})
     cid = next(iter(tg.checks))
     tg.handle_check_callback({"id": "cb"}, "C3", cid)
     tg.handle_message({**message, "text": "100 97 104.5 107.5"})

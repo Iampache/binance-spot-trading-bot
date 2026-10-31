@@ -1,13 +1,42 @@
-# NEXVANT: actionable scan proposals, recoverable positions and portfolio diagnostics
+# NEXVANT: guided setup watches, session limits and recoverable Spot trading
 
-Background scans previously interrupted the owner with rejected/cooldown previews
-and duplicate candidate summaries. V1.9.0 sends only validated, reviewable proposal
-cards through automatic scanning. Technical skip reasons stay in console logs and
-an owner-requested `/scanlog` cache with Dubai timestamps and no approval controls.
-Delivered proposals retain their existing Approve/Reject/Details path, successful
-delivery cooldown and final live revalidation. Failed/canceled delivery does not
-register approval or send another fallback preview. Routine diagnostic noise is
-removed without loosening the 1.5R or other strategy/risk/exchange checks.
+Rejected setups previously offered technical diagnostics without a useful next
+step, and ordinary chat limit changes persisted across restarts. V1.10.0 adds
+owner-requested cards with numbered known reasons, Details, Ignore, quiet
+1/3/15-minute setup watches and matching positions/setup/portfolio/health remedies.
+Watches repeatedly analyze during the selected period; only a fresh validated
+proposal causes a new notification. Their existing message is edited quietly at
+expiry. They cannot buy or reserve cash/slots and remain separate from approved
+entry watches. Account, settings revision, generation and monotonic-deadline
+guards invalidate canceled/stale observations, including late proposal delivery.
+
+Before Binance/Telegram connections the terminal asks for 1–10 parallel trades,
+defaulting to one. Monitoring waits for that answer; EOF/Ctrl+C cancels startup.
+Telegram `/setup` applies confirmed values only to the current run. Restart asks
+for count again and restores the saved investment baseline. Historical saved
+audits remain readable, including old counts above ten, but effective counts are
+capped at ten. Filled positions remain managed when a lower limit blocks entry.
+Ordinary chat cannot permanently save limits; explanatory admin guidance is not
+an implemented approval/Helpdesk service. Local operator persistence retains
+atomic audit updates without saving unrelated temporary overrides.
+
+Early/repeated readiness checks verify capacity, ownership, accounting, permission
+and pair-specific funding for both sell legs with commission reserves. Funding
+before chosen levels is explicitly provisional; actual stop/steps govern later
+checks. Normal buffers/risk gates and explicit Manual exceptions remain distinct.
+Signed UID/Spot/canTrade checks also precede every new buy. Settings changes
+invalidate pending approvals and untriggered watches. Actual approved limit values
+are compared alongside revisions so a reused session ordinal cannot authorize
+different limits. Invalid saved settings block buys while startup recovery
+continues for existing positions. No 1.5R tolerance, target
+adjustment or new buying authority is introduced.
+
+Background scanning remains proposals-only under v1.9.0's policy. Skip reasons
+stay in console logs and owner-requested `/scanlog` diagnostics with Dubai times.
+Its new Check / watch navigation starts a fresh check of a frozen pair, never an
+approval of cached levels. Delivered proposals keep Approve/Reject/Details,
+successful-delivery cooldown and final live revalidation. Failed/canceled delivery
+cannot register approval or emit a fallback preview.
 
 The obsolete candidate-notification flag is retired, including existing `true`
 values. Trade fills/results, protection failures and recovery alerts remain on
@@ -85,8 +114,8 @@ with positive remaining inventory. External disposal is not invented as a sale.
 The branch also includes durable buy/OCO intents, evidence-based restart
 recovery, capped IOC entries, fee accounting, account/environment isolation and
 single-use Telegram approval. Unknown writes are reconciled before another
-submission. Owner-only `/setup` persists confirmed parallel-trade and investment
-caps; cash, active risk, order capacity and exact OCO ownership constrain entry.
+submission. Owner-only `/setup` now applies confirmed parallel-trade and investment
+caps for the current run; cash, active risk, order capacity and exact OCO ownership constrain entry.
 Defaults remain one trade and 12 USDT. `/position` adds read-only details and
 expiring, exact-record Exit Trade confirmation with durable per-OCO unwind.
 Watches have a distinct cancellation. `/pnl` uses completed trades' final sell
@@ -100,8 +129,14 @@ choice; the coin's strategy checks remain. New Listings awaits a verified source
 Normal policy retains Spot USDT, 10M turnover, 1% sizing and the 3 USDT daily-risk
 budget. Manual risk exceptions remain explicit; every new buy requires approval.
 
-Validation: **637 passed, 3 native Windows skips**, three upstream warnings.
-Ruff lint/format, Bandit, dependency and whitespace checks pass. Ten new scan
+Validation: **712 passed, 3 native Windows skips**, three upstream warnings.
+Ruff lint/format, Bandit, dependency and whitespace checks pass. Seventy-five new
+cases cover two-leg funding, hard/normal gates, continuous quiet watches and
+delivery/cancellation/deadline races, owner/message binding, session/durable
+revision isolation, reused ordinals, legacy settings, invalid-settings recovery
+and startup order/ceiling. Existing policy
+tests follow the requested new controls without removing numerical, ownership or
+execution assertions. Ten earlier scan
 notification cases verify mixed/all-valid delivery, real proposal markup,
 cancellation/delivery failure, snapshot priority, lifecycle alerts and diagnostic
 authorization. Existing preview tests now assert the explicitly requested quiet

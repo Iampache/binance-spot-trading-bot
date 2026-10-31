@@ -161,6 +161,7 @@ def report(*, now=None):
         f"Trade slots: {len(active)} / {limits['max_open_trades']} occupied | {max(0, limits['max_open_trades'] - len(active))} free",
         f"Entry watches: {len(watches)} | other active/unresolved: {len(active) - len(watches)}",
         f"Per-trade investment cap: {limits['max_position_usdt']} USDT (including fee reserve)",
+        f"Limit scope: trades — {limits['scopes']['max_open_trades']}; investment — {limits['scopes']['max_position_usdt']}. Parallel count is chosen at startup (ceiling 10); saved investment default {limits['saved_limits']['max_position_usdt']} USDT.",
         "",
         "Account USDT free: " + amount(free),
         "Account USDT locked on exchange: " + amount(locked),

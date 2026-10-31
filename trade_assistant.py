@@ -34,6 +34,19 @@ class ActiveTradeError(ValueError):
     """The account's existing durable trade slot prevents a new entry."""
 
 
+def same_trading_limits(left, right):
+    """A session can reuse an ordinal; compare the actual approved limits too."""
+    return str(left.get("settings_revision", left.get("revision", 0))) == str(
+        right.get("settings_revision", right.get("revision", 0))
+    ) and all(
+        em.D(left.get(field, default)) == em.D(right.get(field, default))
+        for field, default in (
+            ("max_open_trades", safety.MAX_OPEN_TRADES),
+            ("max_position_usdt", safety.MAX_POSITION_USDT),
+        )
+    )
+
+
 def active_trade_reason(symbol, records, limit=1):
     if len(records) != 1:
         names = ", ".join(sorted({record["symbol"] for record in records}))
@@ -210,10 +223,7 @@ def _build_plan(sig, *, approved_bounds=None, watch_id=None):
     if sc.RISK_PCT != 1:
         raise ValueError("Automatic risk must remain 1%")
     limits = settings.read()
-    if (
-        approved_bounds is not None
-        and int(approved_bounds.get("settings_revision", 0)) != limits["revision"]
-    ):
+    if approved_bounds is not None and not same_trading_limits(approved_bounds, limits):
         raise PlanChangedError(
             "Trading settings changed; a fresh proposal and approval are required"
         )
@@ -412,7 +422,7 @@ def _build_plan(sig, *, approved_bounds=None, watch_id=None):
 
 
 def approval_bounds(old, fresh):
-    if str(old.get("settings_revision", 0)) != str(fresh.get("settings_revision", 0)):
+    if not same_trading_limits(old, fresh):
         return False
     if old["symbol"] != fresh["symbol"] or str(old.get("manual_override", False)) != str(
         fresh.get("manual_override", False)
@@ -450,7 +460,7 @@ def execute(plan, *, approval=None, monitor=True):
             ensure_free_trade_slot(plan["symbol"])
         except ActiveTradeError as error:
             raise RuntimeError(str(error)) from None
-        if int(plan.get("settings_revision", 0)) != settings.read()["revision"]:
+        if not same_trading_limits(plan, settings.read()):
             raise PlanChangedError("Trading settings changed; fresh approval required")
         if any(r.get("approval_id") == approval["approval_id"] for r in em.load_trades()):
             raise ValueError("Approval already consumed")

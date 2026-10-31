@@ -202,7 +202,7 @@ def test_manual_warning_card_uses_override_label_and_collects_levels_without_buy
     tg.send_check_card(result)
     kb = json.loads(messages[-1][1]["reply_markup"])
     assert any(
-        button["text"] == "3 - Trading options" for row in kb["inline_keyboard"] for button in row
+        button["text"] == "Trading options" for row in kb["inline_keyboard"] for button in row
     )
     card = next(iter(tg.checks))
     tg.handle_check_callback({"id": "cb"}, "C3", card)

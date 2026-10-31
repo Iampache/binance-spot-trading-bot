@@ -173,6 +173,7 @@ def test_shutdown_notice_precedes_join_and_instance_lock_release(sim, monkeypatc
     monkeypatch.setattr(tg, "TOKEN", "synthetic")
     monkeypatch.setattr(tg, "CHAT_ID", "synthetic")
     monkeypatch.setattr(tg, "_run_main", run)
+    monkeypatch.setattr(tg, "prompt_parallel_count", lambda: 1)
     monkeypatch.setattr(em, "instance_lock", lambda: Lock())
     tg.main()
     assert order == ["joined", "released"] and not tg.workers

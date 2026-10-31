@@ -1,6 +1,6 @@
 # NEXVANT algorithmic proposal design
 
-Display version: 1.9.0. Strategy identity: `atr-structure-v2`.
+Display version: 1.10.0. Strategy identity: `atr-structure-v2`.
 Reviewed public documentation on 31 October 2026 (Asia/Dubai).
 
 This is a deterministic rules-based proposal generator, not a trained AI model,
@@ -10,6 +10,33 @@ correctly reject every current symbol if the coin's own setup fails. Telegram
 approval remains mandatory, as explicitly confirmed by the account owner.
 
 ## User control
+
+V1.10.0 adds guided, owner-requested reason cards and read-only setup observations
+lasting 1/3/15 minutes. They repeatedly analyze fresh data; only a validated live
+proposal triggers a new notification. Watching is not approval and reserves no
+cash/slot. An approved entry watch remains a separate bounded execution lifecycle.
+Cancel, deadline, context, settings revision and generation checks prevent stale
+observations from registering proposals. All buys still require final approval.
+
+Readiness checks run before mode selection, after chosen levels and before final
+approval. Capacity must permit one more trade: current count **less than** the
+limit. Funds must support both exchange-valid sell legs after quantity rounding
+and commission reserve, at the selected stop when known. Without levels the check
+is only a lower bound. Normal buffers, sizing and daily-risk gates remain;
+Manual retains explicit strategy/risk exceptions but cannot bypass hard checks.
+The exchange account permission is checked again immediately before a new buy.
+These are early diagnostics/guards, not altered targets or profitability claims.
+
+Startup asks for 1–10 parallel trades before network initialization. Telegram
+`/setup` modifies the current run only; count is asked again next startup and
+investment reverts to its saved baseline. Permanent operator updates remain a
+local API, not an ordinary-chat capability or implemented Helpdesk approval flow.
+Old durable audits remain readable; effective counts are capped at ten and lower
+limits never close filled positions. Confirmed changes invalidate old approvals
+and untriggered watches. Existing journals and strategy identity are unchanged.
+Approval compares actual limit values alongside the revision; repeated process
+sessions cannot reuse an ordinal to authorize changed limits. Invalid saved
+settings block new plans while existing-position startup recovery still runs.
 
 V1.9.0 makes automatic scan notifications proposal-only. Rejected/cooldown pairs
 remain in logs and the owner-requested `/scanlog` snapshot; delivered proposals

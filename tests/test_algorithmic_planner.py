@@ -398,7 +398,8 @@ def test_assisted_cannot_approve_targets_above_model_bounds(sim, market, message
     suggestion = tg.state["signal"]
     tg.handle_message(telegram_message(f"{suggestion['t1']} {suggestion['t2'] + 10}"))
     assert not tg.pending and not sim.writes
-    assert any("No assisted proposal" in text for text, _ in messages)
+    assert any("Why no entry is ready" in text and "1." in text for text, _ in messages)
+    assert "reply_markup" in messages[-1][1]  # Rejected targets now have recovery choices.
 
 
 def test_coarse_quantity_steps_cannot_hide_negative_conservative_profit(sim, market, monkeypatch):

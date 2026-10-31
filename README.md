@@ -2,6 +2,72 @@
 
 Binance Spot trading assistant with Telegram control. Concept & developed by Fazil.
 
+## Guided choices, quiet setup watches and session limits (v1.10.0)
+
+At terminal startup, choose **1–10 parallel trades** before the app connects to
+Binance or Telegram. Press Enter for one. This choice applies to the current run;
+it does not place trades or edit source code. Values above ten are rejected.
+The ceiling is a release setting in `trading_settings.py`, changed by a developer,
+not by entering a larger number in chat. The app waits at this prompt: local
+monitoring and restart reconciliation begin only after you answer. EOF/Ctrl+C
+cancels startup without connecting. Existing Binance orders remain at the exchange.
+
+Owner-requested checks now offer plain-language reasons and relevant next steps.
+A blocked setup can show **Watch setup** or **Entry unavailable**, numbered known
+reasons, and the appropriate **Trading setup / View positions / Portfolio risk /
+System health** controls. A full limit identifies the occupied pairs and count;
+an accounting/protection fault directs you to health instead of suggesting a
+larger limit. Unchecked stages are labeled; passing the scanner does not claim
+that all entry checks passed. Exact technical diagnostics remain behind **Details**.
+
+Choose **Ignore**, **Watch 1 min / 3 min / 15 min**, **Trading options**, **Details**
+or **Check again**. Trading options retains Manual, Assisted and Auto Setup with
+fresh entry checks. **Ignore** dismisses this check/observation; it does not exit
+a filled position or reject a separately delivered proposal. Use `/position`
+and its explicit exit confirmation to close a bot position.
+
+A setup watch repeatedly checks the pair during the chosen period, at up to one
+check per 15 seconds. It sends a new notification only when a fresh plan passes
+validation and can be delivered with **Approve / Reject / Details**. No buy, slot
+reservation or fund reservation occurs. Its original message is edited quietly
+when it ends without a proposal. Stop/Ignore, `/cancel`, settings changes, shutdown
+and restart invalidate these observations. This differs from an **approved entry
+watch**, which already has bounded buying authority and reserves cash/a slot.
+Expired/canceled observations cannot register a late approval.
+Approved entry watches retain their existing restart cancellation: after a
+restart, a new entry requires a fresh proposal and approval.
+
+Background scanning remains proposals-only. `/scanlog` stays an explicit cached
+diagnostic request and now offers **Check / watch PAIR** navigation. These buttons
+start a fresh check of the displayed pair; they do not approve cached levels.
+
+`/setup` changes are now **current-session only**. Review the new value and choose
+**Use for this session (default)**. The next startup asks for the parallel count
+again, and the investment cap returns to its saved baseline (12 USDT if never
+changed). Changes invalidate pending approvals and untriggered entry/setup
+watches; they never close or reprice filled positions. Existing settings/audit
+files remain intact. Old saved counts above ten remain readable, but effective
+limits never exceed ten; existing positions are not closed to enforce a lower cap.
+
+Permanent defaults are operator-managed. **About permanent limits** is explanatory;
+there is no ordinary Telegram permanent-save endpoint, Helpdesk service or admin
+approval workflow in this release. The supplied imaginary Helpdesk address is
+not configured as a working contact. The local settings API retains explicit
+persistent updates for operator tooling; it never promotes other session overrides.
+
+Before opening a mode, after levels are chosen and before final approval, entry
+checks verify capacity, account/order ownership, execution/fee evidence and funds.
+The minimum amount comes from the pair's actual quantity steps and minimum order
+values for **both sell legs**, plus fee reserves; there is no fixed $6 wallet rule.
+Before stop levels are chosen this funding check is preliminary. Normal modes
+retain their cash/notional buffers, liquidity, 1% sizing and 3 USDT risk budget.
+Manual keeps its explicit strategy/risk exceptions; account, ownership, funds,
+exchange rules, limits, protection and final approval still apply. BTC weakness
+remains advisory. A signed account-permission check also precedes every new buy.
+
+Keep `.env` and the entire `runtime_state` folder when pulling and restarting.
+No journal migration, new dependency or live trade is required by this update.
+
 ## Automatic scan notifications: proposals only (v1.9.0)
 
 Background scanning sends a Telegram message when a plan passes validation and
@@ -26,7 +92,7 @@ are historical/view-only and cannot reactivate approval.
 The old `SCAN_CANDIDATE_NOTIFICATIONS` variable is retired and ignored, including
 when an existing `.env` contains `true`. No `.env` edit is needed. Pull and restart
 the assistant from the same folder, retaining `runtime_state`, to apply the policy.
-This changes notification delivery only: the 1.5R threshold, price/tick checks,
+That release changes notification delivery only: the 1.5R threshold, price/tick checks,
 liquidity, funds, risk, trade limits and fresh final approval remain enforced.
 
 ## Live position performance and portfolio risk (v1.8.0)
@@ -240,17 +306,19 @@ Positions/settings/journals stay in the same account-scoped `runtime_state`.
 
 Send `/setup` to view your limits and choose **Change max trades** or
 **Change max investment**. Enter the new value, review the resulting limits and
-tap **Confirm change**. Defaults remain **1 active trade / 12 USDT per trade**.
-The trade count accepts whole numbers 1–100; the investment cap accepts a positive
+tap **Use for this session (default)**. Defaults remain **1 active trade / 12 USDT
+per trade**. From v1.10.0 the trade count accepts whole numbers **1–10**; the investment cap accepts a positive
 USDT amount with up to two decimals and includes reserved buy commission.
 These are ceilings, not guaranteed allocation: available funds, normal 1% risk
 sizing, the 3 USDT daily budget and exchange minimums can reduce size or block entry.
 
-Limits apply immediately and survive restart in
-`runtime_state/<environment>/<account_uid>/settings.json`. The same atomic file
-records revision, old/new values, UTC timestamp and Telegram actor for each
-confirmed change. It is ignored by Git. `.env` remains for credentials and runtime
-flags; adding old-looking limit variables there will not override `/setup`.
+Limits apply immediately. From v1.10.0 Telegram changes are session-only and
+recorded in process memory; they do not update the durable baseline. Earlier
+releases saved confirmed changes in
+`runtime_state/<environment>/<account_uid>/settings.json`, with revision, old/new
+values, UTC timestamp and actor. That baseline/audit remains valid and ignored by
+Git; only local operator tooling can save future defaults. `.env` remains for
+credentials and runtime flags; limit variables there do not override `/setup`.
 Missing settings use defaults; corrupt settings block new entries rather than
 silently resetting. Preserve the entire `runtime_state` folder across upgrades.
 
@@ -452,7 +520,7 @@ bound entry price and quantity. Partial/expired entry fills are recorded, reconc
 and unwound conservatively. An IOC may expire without buying anything. Protective
 exits remain two exchange-linked OCOs with `LIMIT_MAKER` targets and `STOP_LOSS`
 market triggers. Original stops remain after TP1; there is no automatic breakeven
-cancel/replace. `/check`, manual levels, and 15-minute rechecks remain available.
+cancel/replace. `/check`, manual levels and quiet 1/3/15-minute setup watches remain available.
 
 ## Runtime and recovery contract
 

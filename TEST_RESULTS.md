@@ -1,9 +1,14 @@
 # Offline validation results
 
-Latest v1.9.0 result: **637 passed, 3 native Windows skips**, three upstream
+Latest v1.10.0 result: **712 passed, 3 native Windows skips**, three upstream
 deprecation warnings. Ruff lint/format, Bandit, dependency and whitespace checks
 pass. The sections below retain earlier run history; the latest regression
 details are recorded at the end.
+
+V1.10.0 adds 75 cases for entry readiness, continuous quiet setup watches,
+session-only chat limits, operator-only persistence and bounded startup choices.
+Earlier button, one-shot recheck and persistent-chat expectations now follow the
+owner's explicit policy; numerical risk/execution and authorization checks remain.
 
 V1.9.0 adds 10 proposal-only notification regressions. Earlier preview-delivery
 expectations now assert quiet background scans and explicit diagnostic requests,
@@ -780,3 +785,43 @@ deprecation warnings. Ruff lint/format, Bandit, `pip check` and whitespace check
 pass. All transport is synthetic, with sockets/HTTP forbidden. No production
 credentials, real Binance orders or Telegram service were used. Notification
 changes do not establish profitability, live delivery reliability or zero defects.
+
+## Guided setup watches and session limits (v1.10.0)
+
+Seventy-five new cases cover:
+
+- `tests/test_entry_readiness.py` (18): smallest two-leg funding at selected stop
+  prices, fee/quantity rounding, incompatible market/lot lattices, provisional
+  pre-level checks, insufficient balances/caps, exact occupied pairs/count,
+  duplicate/unresolved positions, ownership, reservations, normal-versus-Manual
+  risk policy, runtime faults, read-only operation and private-error safety.
+- `tests/test_setup_watches.py` (25): fresh repeated analysis, valid-proposal-only
+  delivery, quiet expiry/errors, immutable pair navigation, owner/message guards,
+  Ignore/replacement/cancel, settings invalidation, 15-minute
+  observation beyond the ordinary card TTL, deadline and late-response races,
+  actionable reasons/remedies, Details and mode gates before algorithm analysis.
+- `tests/test_session_limits.py` (16): account/session overlays and durable audit
+  preservation, independent permanent updates, effective revision isolation,
+  failed writes, corrupted baselines, current-session confirmation, truthful scope
+  display, reused ordinals with different limits and pre-buy permission changes
+  without disabling existing protection monitoring.
+- `tests/test_startup_trade_limit.py` (16): prompt before initialization, default
+  one, 1–10 bounds, invalid input retry, EOF/Ctrl+C without connections, startup
+  session application, historical saved counts capped without rewriting audits,
+  preserved filled positions, forged permanent-save callbacks and startup recovery
+  with invalid saved settings while new entries remain blocked.
+
+Earlier regression expectations were adjusted for the owner's requested named
+controls, session-only chat confirmation and continuous rather than one-shot
+15-minute setup observation. Manual override, numeric/RR checks, no-order-before-
+approval and canonical occupied-slot validation remain asserted. Scan-log buttons
+are fresh-check navigation, never cached approval.
+
+Final full suite: **712 passed, 3 native Windows skips**, three upstream
+deprecation warnings. Ruff lint/format, Bandit, `pip check` and whitespace checks
+pass. Tests forbid sockets/HTTP and use synthetic SDK transport. No production
+credentials, live Binance, Telegram service or real orders were used. This does
+not verify native Windows console behavior or live execution/delivery reliability.
+The interactive prompt pauses local monitoring until answered; existing exchange
+orders remain in place. No multi-user administrator or Helpdesk service is tested
+or implemented.

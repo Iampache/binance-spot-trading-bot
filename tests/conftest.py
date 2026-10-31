@@ -14,6 +14,7 @@ from simulator import SpotSimulator
 import exit_manager as em
 import runtime_health
 import telegram_assistant as tg
+import trading_settings
 
 
 @pytest.fixture(autouse=True)
@@ -35,10 +36,13 @@ def offline(monkeypatch, tmp_path):
     monkeypatch.setattr(em, "POLL_SECONDS", 0)
     em.STOP.clear()
     runtime_health.reset()
+    trading_settings.reset_session()
     tg.last_preview.clear()
     tg.last_scan.clear()
     tg.pending.clear()
     tg.checks.clear()
+    tg.setup_watches.clear()
+    tg.scan_selections.clear()
     tg.discovery_views.clear()
     tg.setup_views.clear()
     tg.position_views.clear()

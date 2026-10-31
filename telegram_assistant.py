@@ -4,11 +4,10 @@ NEXVANT: Telegram scanner proposals + on-demand /check + manual entry
 A) AUTOMATIC: scans Binance every 15 min and sends proposals with [Approve] [Reject] buttons.
 B) ON DEMAND: send /check (or /check_ticker or /check-ticker) -> it asks for the pair
    (e.g. BTC/USDT) -> it checks the coin and replies with a status:
-       SETUP FOUND            -> buttons: 1 Review live plan | 3 Trading options | Cancel
-       WARNING - WAIT 15 MIN  -> buttons: 2 Recheck in 15 min | 3 Manual | Cancel
-   1 -> shows Entry / SL / TP1 / TP2 / size / $ at risk with [Approve] [Reject]
-   2 -> rechecks after 15 minutes and sends you the updated status
-   3 -> Manual (ENTRY STOP TP1 TP2), Assisted (bot entry/stop, user targets),
+       SETUP FOUND -> Review live plan | Watch 1/3/15 min | Trading options | Ignore
+       NOT READY   -> numbered reasons | Watch 1/3/15 min | next steps | Details
+   Setup watches observe quietly and send only a fresh validated approval proposal.
+   Trading options -> Manual (ENTRY STOP TP1 TP2), Assisted (bot entry/stop, user targets),
         or Auto Setup (all algorithmic levels); every path requires final approval.
    Approve -> live price re-check -> price-capped IOC buy -> 2 OCO exits (stop + targets), original stops retained after TP1.
 
@@ -43,6 +42,7 @@ from binance.exceptions import BinanceAPIException
 
 import algorithmic_planner as algo
 import bot_health
+import entry_readiness as readiness
 import entry_scanner as sc
 import exit_manager as em
 import market_discovery as discovery
@@ -69,6 +69,8 @@ last_preview = {}  # read-only snapshot for SHOW PR; never an approval source
 last_scan = {}  # on-demand diagnostics only; never a background Telegram summary
 pending = {}  # proposal id -> dict
 checks = {}  # /check card id -> dict
+setup_watches = {}  # read-only observation; never reserves funds or buys
+scan_selections = {}  # frozen, owner-requested scan-log pairs; read-only navigation
 discovery_views = {}  # ephemeral read-only discovery menus/results
 setup_views = {}  # owner-only setting changes awaiting confirmation
 position_views = {}  # immutable record IDs; no number ever resolves a fresh ticker list
@@ -94,7 +96,7 @@ HELP = (
     "/health — exchange checks, monitoring and entry blockers\n"
     "/position or /positions — numbered bot positions, details and confirmed exit\n"
     "/portfolio — bot holdings, estimated P&L, cash reservations and risk overview\n"
-    "/setup — change maximum active trades and per-trade investment cap\n"
+    "/setup — change this session's trade limit (max 10) and investment cap\n"
     "/pnl — today's completed bot-trade profit/loss (Dubai time)\n"
     "/showpr or SHOW PR — latest saved proposal/candidate; view only\n"
     "/cancel — cancel pending proposals, forms, rechecks and untriggered watches. "
@@ -102,7 +104,8 @@ HELP = (
     "Use /position → Exit Trade → Confirm Exit to close a filled trade. "
     "/cancel cannot undo an accepted exit request.\n\n"
     "After /check:\n"
-    "1 — scanner plan; 2 — recheck in 15 min; 3 — trading options\n"
+    "Review live plan, Watch 1/3/15 min, Trading options, Details or Ignore\n"
+    "Setup watches never buy; only a fresh validated proposal notifies you.\n"
     "Manual — type ENTRY STOP TP1 TP2 (explicit risk override)\n"
     "Assisted — bot suggests entry/SL; type TP1 TP2\n"
     "Auto Setup — bot calculates all levels; you still approve\n"
@@ -331,11 +334,13 @@ def proposal_details_text(sig, p, note):
     return "\n".join(lines)
 
 
-def send_proposal(sig, plan, note):
+def send_proposal(sig, plan, note, *, guard=None):
     if int(plan.get("settings_revision", 0)) != settings.read()["revision"]:
         return False
     with pend_lock:
         generation = proposal_generation
+        if guard is not None and not guard():
+            return False
     pid = uuid.uuid4().hex
     text = proposal_text(sig, plan, note)
     details = proposal_details_text(sig, plan, note)
@@ -352,8 +357,16 @@ def send_proposal(sig, plan, note):
     if not r.get("ok"):
         sc.log.warning(f"Could not send proposal: {r.get('description')}")
         return False
+    try:
+        settings_match = int(plan.get("settings_revision", 0)) == settings.read()["revision"]
+    except Exception:
+        settings_match = False
     with pend_lock:
-        if generation != proposal_generation:
+        if (
+            generation != proposal_generation
+            or not settings_match
+            or (guard is not None and not guard())
+        ):
             edit(
                 {"mid": r["result"]["message_id"], "text": text},
                 "CANCELLED. No approval available.",
@@ -445,7 +458,51 @@ def show_scan_log():
         else:
             chunk = joined
     if chunk:
-        say(chunk)
+        symbols = tuple(item["symbol"] for item in snapshot["outcomes"][:10])
+        sid = uuid.uuid4().hex
+        generation = proposal_generation
+        markup = {
+            "inline_keyboard": [
+                [{"text": f"Check / watch {symbol}", "callback_data": f"Q:{sid}:{index}"}]
+                for index, symbol in enumerate(symbols)
+            ]
+        }
+        result = say(chunk, **({"reply_markup": json.dumps(markup)} if symbols else {}))
+        if symbols and result.get("ok"):
+            item = dict(
+                symbols=symbols,
+                generation=generation,
+                created=time.time(),
+                mid=result["result"]["message_id"],
+                text=chunk,
+            )
+            with pend_lock:
+                if generation == proposal_generation:
+                    scan_selections[sid] = item
+                else:
+                    edit(item, "CANCELLED. Request /scanlog again.")
+
+
+def handle_scan_selection(cb, payload):
+    sid, _, number = payload.partition(":")
+    item = scan_selections.get(sid)
+    valid = (
+        item
+        and item["generation"] == proposal_generation
+        and time.time() - item["created"] < CHECK_TTL
+        and cb.get("message", {}).get("message_id") == item["mid"]
+        and number.isdigit()
+        and int(number) < len(item["symbols"])
+    )
+    tg(
+        "answerCallbackQuery",
+        callback_query_id=cb["id"],
+        text="Checking fresh data..." if valid else "Expired selection. Request /scanlog again.",
+    )
+    if valid:
+        run_check(item["symbols"][int(number)], generation=item["generation"])
+    else:
+        clear_callback_keyboard(cb)
 
 
 def expire_pending():
@@ -463,6 +520,10 @@ def expire_pending():
             if state.get("position_view_id") == pid:
                 state.clear()
             edit(view, "EXPIRED. Open /position again.")
+    for sid, view in list(scan_selections.items()):
+        if now - view["created"] > CHECK_TTL:
+            scan_selections.pop(sid, None)
+            edit(view, "EXPIRED. Request /scanlog again.")
     for sid, view in list(setup_views.items()):
         if now - view["created"] > CHECK_TTL:
             setup_views.pop(sid, None)
@@ -555,36 +616,99 @@ def check_ticker(symbol):
     )
 
 
-def send_check_card(res, title="CHECK", generation=None):
-    cid = uuid.uuid4().hex
+def check_controls(cid, res, problem=None):
+    rows = []
+    if problem is None and res.get("sig") and res["status"] == "SAFE":
+        rows.append([{"text": "Review live plan", "callback_data": f"C1:{cid}"}])
+    if problem is not None:
+        labels = {
+            "positions": "View positions",
+            "setup": "Trading setup",
+            "portfolio": "Portfolio risk",
+            "health": "System health",
+        }
+        rows.append(
+            [{"text": labels[action], "callback_data": f"H:{action}"} for action in problem.actions]
+        )
+    rows.append(
+        [
+            {"text": f"Watch {minutes} min", "callback_data": f"CM{minutes}:{cid}"}
+            for minutes in (1, 3, 15)
+        ]
+    )
+    row = []
+    if problem is None or problem.modes:
+        row.append({"text": "Trading options", "callback_data": f"C3:{cid}"})
+    row.append({"text": "Details", "callback_data": f"CD:{cid}"})
+    rows.append(row)
+    rows.append(
+        [
+            {"text": "Check again", "callback_data": f"CC:{cid}"},
+            {"text": "Ignore", "callback_data": f"CX:{cid}"},
+        ]
+    )
+    return {"inline_keyboard": [row for row in rows if row]}
+
+
+def check_text(res, title, problem=None):
     pair = f"{res['symbol'][:-4]}/USDT"
-    lines = [
-        f"🔵 {title}: {pair}",
-        f"Reference price {sc.fmt(res['price'])} | 24h {res['chg']:+.1f}% | volume ${res['qv'] / 1e6:.0f}M",
-        "",
-    ]
-    if res["status"] == "SAFE":
-        lines += [
-            "🟡 STATUS: Setup found — execution checks pending",
-            f"Why: {res['sig']['setup']}, RSI {res['sig']['rsi']:.0f}",
-            "Chart conditions match. Request a live plan to check entry, risk, funds and exchange rules.",
-        ]
-        row = [
-            {"text": "1 - Review live plan", "callback_data": f"C1:{cid}"},
-            {"text": "3 - Trading options", "callback_data": f"C3:{cid}"},
-        ]
+    if problem is not None or res["status"] != "SAFE":
+        is_setup = problem is None or problem.code == "SETUP"
+        lines = [f"{'👀 Watch setup' if is_setup else '⏸ Entry unavailable'} — {pair}", ""]
+        lines.append(
+            "The scanner found a possible setup, but the current entry does not pass the built-in entry checks."
+            if res.get("sig") and is_setup
+            else "No new entry has been approved."
+        )
+        reasons = [problem.reason] if problem else list(res.get("reasons", []))
+        if problem and problem.code == "SETUP" and "reward/risk" in problem.reason.lower():
+            reasons = [
+                "The first target leaves too little reward for the distance to the stop at the current entry price."
+            ]
+        lines.extend(["", "Why no entry is ready:"])
+        lines.extend(
+            f"{index}. {reason}"
+            for index, reason in enumerate(reasons or ["No qualifying setup right now."], 1)
+        )
+        if problem is not None:
+            facts = problem.checks or res.get("readiness_checks", {})
+            if facts:
+                lines.extend(
+                    ["", "Checks: " + " | ".join(f"{key}: {value}" for key, value in facts.items())]
+                )
+            lines.append(
+                "Full entry validation is not complete; unchecked stages are not treated as passed."
+            )
+            if "setup" in problem.actions:
+                lines.append(
+                    "Next step: use /setup to review the limit for this session (maximum 10 parallel trades), confirm, then request a fresh check. Permanent changes need administrator approval."
+                )
+        lines.extend(
+            [
+                "",
+                "What would you like NEXVANT to do?",
+                "A setup watch only observes. Any later buy needs a fresh proposal and your approval.",
+            ]
+        )
     else:
-        lines += ["🟡 STATUS: 2 - WARNING - WAIT 15 MINUTES", "Reasons:"] + [
-            f"- {x}" for x in res["reasons"]
+        lines = [
+            f"🔵 {title}: {pair}",
+            f"Reference price {sc.fmt(res['price'])} | 24h {res['chg']:+.1f}% | volume ${res['qv'] / 1e6:.0f}M",
+            "",
+            "🟡 STATUS: Setup found — execution checks pending",
+            f"Why: {res['sig']['setup']}, RSI {res['sig'].get('rsi', 0):.0f}",
+            "Review a live plan, watch the setup quietly, or choose trading options. Final approval is always required.",
         ]
-        row = [
-            {"text": "2 - Recheck in 15 min", "callback_data": f"C2:{cid}"},
-            {"text": "3 - Trading options", "callback_data": f"C3:{cid}"},
-        ]
-    if res["note"]:
-        lines += ["", res["note"]]
-    text = "\n".join(lines)
-    kb = {"inline_keyboard": [row, [{"text": "Cancel", "callback_data": f"CX:{cid}"}]]}
+    if res.get("note"):
+        lines.extend(["", res["note"]])
+    return "\n".join(lines)
+
+
+def send_check_card(res, title="CHECK", generation=None, *, problem=None):
+    cid = uuid.uuid4().hex
+    generation = proposal_generation if generation is None else generation
+    text = check_text(res, title, problem)
+    kb = check_controls(cid, res, problem)
     r = say(text, reply_markup=json.dumps(kb))
     if r.get("ok"):
         with pend_lock:
@@ -595,8 +719,36 @@ def send_check_card(res, title="CHECK", generation=None):
                 )
                 return
             checks[cid] = dict(
-                res=res, created=time.time(), mid=r["result"]["message_id"], text=text
+                res=res,
+                created=time.time(),
+                mid=r["result"]["message_id"],
+                text=text,
+                generation=generation,
+                problem=problem,
             )
+        return cid
+
+
+def show_entry_problem(res, error, *, cid=None, item=None):
+    problem = readiness.problem(error)
+    generation = item.get("generation", proposal_generation) if item else proposal_generation
+    if cid:
+        checks.pop(cid, None)
+        if state.get("menu_id") == cid:
+            state.clear()
+    if item:
+        edit(item, "NOT AVAILABLE: " + problem.reason + ". No new buy placed. New choices below.")
+    return send_check_card(res, generation=generation, problem=problem)
+
+
+def mode_precheck(res, mode=None, *, cid=None, item=None, signal=None):
+    try:
+        result = readiness.check(res["symbol"], mode=mode, signal=signal)
+        res["readiness_checks"] = result["checks"]
+        return result
+    except Exception as error:
+        show_entry_problem(res, error, cid=cid, item=item)
+        return None
 
 
 def run_check(raw, title="CHECK", generation=None):
@@ -617,6 +769,240 @@ def run_check(raw, title="CHECK", generation=None):
     send_check_card(res, title, generation)
 
 
+def setup_watch_current(wid, watch):
+    return (
+        setup_watches.get(wid) is watch
+        and not watch["cancelled"]
+        and not em.STOP.is_set()
+        and watch["generation"] == proposal_generation
+        and watch["context"] == em.CONTEXT
+        and time.monotonic() < watch["deadline"]
+    )
+
+
+def pending_pair(symbol):
+    return any(
+        item["plan"].get("symbol") == symbol and time.time() - item["created"] < APPROVAL_TTL
+        for item in pending.values()
+    )
+
+
+def finish_setup_watch(wid, watch, status, *, problem=None, controls=True):
+    with pend_lock:
+        if setup_watches.get(wid) is not watch:
+            return
+        setup_watches.pop(wid)
+        if (
+            watch["cancelled"]
+            or watch["generation"] != proposal_generation
+            or watch["context"] != em.CONTEXT
+            or em.STOP.is_set()
+        ):
+            return
+        cid = uuid.uuid4().hex
+        text = status + "\n\n" + check_text(watch["res"], "WATCH", problem)
+        item = dict(
+            res=watch["res"],
+            created=time.time(),
+            mid=watch["mid"],
+            text=text,
+            generation=watch["generation"],
+            problem=problem,
+        )
+        if controls:
+            checks[cid] = item
+    result = tg(
+        "editMessageText",
+        chat_id=CHAT_ID,
+        message_id=watch["mid"],
+        text=text,
+        reply_markup=json.dumps(
+            check_controls(cid, watch["res"], problem) if controls else {"inline_keyboard": []}
+        ),
+        **ticker_link_options(text),
+    )
+    if not result.get("ok") and controls:
+        with pend_lock:
+            checks.pop(cid, None)
+
+
+def watch_setup(wid, watch):
+    last_problem = None
+    try:
+        while setup_watch_current(wid, watch):
+            try:
+                if settings.read()["revision"] != watch["revision"]:
+                    finish_setup_watch(
+                        wid, watch, "SETTINGS CHANGED. Start a fresh check before watching again."
+                    )
+                    return
+                with pend_lock:
+                    already_sent = pending_pair(watch["symbol"])
+                if already_sent:
+                    finish_setup_watch(
+                        wid,
+                        watch,
+                        "A proposal for this pair is already awaiting review. Use its original controls.",
+                        controls=False,
+                    )
+                    return
+                res = check_ticker(watch["symbol"])
+                watch["res"] = res
+                if not setup_watch_current(wid, watch):
+                    break
+                last_problem = None
+                if res.get("sig") and res["status"] == "SAFE":
+                    readiness.check(watch["symbol"], mode="normal", signal=res["sig"])
+                    plan = ta.build_plan(res["sig"])
+                    if not setup_watch_current(wid, watch):
+                        break
+                    if int(plan.get("settings_revision", 0)) != watch["revision"]:
+                        finish_setup_watch(
+                            wid, watch, "SETTINGS CHANGED. Request a fresh setup watch."
+                        )
+                        return
+                    delivered = send_proposal(
+                        res["sig"],
+                        plan,
+                        res.get("note", ""),
+                        guard=lambda: (
+                            setup_watch_current(wid, watch) and not pending_pair(watch["symbol"])
+                        ),
+                    )
+                    if delivered:
+                        sc.last_alert[watch["symbol"]] = time.time()
+                        finish_setup_watch(
+                            wid,
+                            watch,
+                            "PROPOSAL READY. Review the separate proposal and Approve or Reject. No buy has been placed.",
+                            controls=False,
+                        )
+                    else:
+                        finish_setup_watch(
+                            wid,
+                            watch,
+                            "Proposal delivery was not confirmed. No approval was registered. Request a fresh check.",
+                        )
+                    return
+            except Exception as error:
+                last_problem = readiness.problem(error)
+                sc.log.info("Setup watch %s: %s", watch["symbol"], last_problem.reason)
+            remaining = watch["deadline"] - time.monotonic()
+            if remaining <= 0:
+                break
+            em.STOP.wait(min(15, remaining))
+        finish_setup_watch(
+            wid,
+            watch,
+            "WATCH ENDED. No fresh valid proposal was delivered during this watch.",
+            problem=last_problem,
+        )
+    finally:
+        with pend_lock:
+            if setup_watches.get(wid) is watch:
+                setup_watches.pop(wid)
+
+
+def start_setup_watch(cid, item, minutes):
+    try:
+        em.ensure_context()
+        revision = settings.read()["revision"]
+    except Exception as error:
+        show_entry_problem(item["res"], error, cid=cid, item=item)
+        return
+    wid = uuid.uuid4().hex
+    symbol = item["res"]["symbol"]
+    text = (
+        f"👀 Setup watch — {symbol[:-4]}/USDT\n\nWatching quietly for {minutes} minute(s). "
+        "Only a fresh validated proposal will notify you.\nThis watch cannot buy or reserve a trade slot/funds. Approval will still be required."
+    )
+    watch = dict(
+        symbol=symbol,
+        res=item["res"],
+        mid=item["mid"],
+        text=text,
+        context=dict(em.CONTEXT),
+        revision=revision,
+        generation=item.get("generation", proposal_generation),
+        deadline=time.monotonic() + minutes * 60,
+        cancelled=False,
+    )
+    replaced = []
+    with pend_lock:
+        if checks.get(cid) is not item or watch["generation"] != proposal_generation:
+            return
+        checks.pop(cid)
+        for old_id, old in list(setup_watches.items()):
+            if old["symbol"] == symbol:
+                old["cancelled"] = True
+                replaced.append(old)
+                setup_watches.pop(old_id)
+        setup_watches[wid] = watch
+    if state.get("menu_id") == cid:
+        state.clear()
+    for old in replaced:
+        edit(old, "REPLACED. A newer setup watch for this pair is active.")
+    result = tg(
+        "editMessageText",
+        chat_id=CHAT_ID,
+        message_id=item["mid"],
+        text=text,
+        reply_markup=json.dumps(
+            {"inline_keyboard": [[{"text": "Stop watching / Ignore", "callback_data": f"W:{wid}"}]]}
+        ),
+        **ticker_link_options(text),
+    )
+    if not result.get("ok"):
+        with pend_lock:
+            setup_watches.pop(wid, None)
+        return
+    try:
+        start_managed_worker(lambda: watch_setup(wid, watch))
+    except Exception as error:
+        finish_setup_watch(
+            wid,
+            watch,
+            "Watch could not start. No buy was placed.",
+            problem=readiness.problem(error),
+        )
+
+
+def cancel_setup_watches(
+    reason="CANCELLED. Setup observation stopped; existing trades are unchanged.", *, render=True
+):
+    with pend_lock:
+        watches = list(setup_watches.values())
+        setup_watches.clear()
+        for watch in watches:
+            watch["cancelled"] = True
+    if render:
+        for watch in watches:
+            edit(watch, reason)
+    return len(watches)
+
+
+def handle_setup_watch_callback(cb, wid):
+    with pend_lock:
+        watch = setup_watches.get(wid)
+        if watch and cb.get("message", {}).get("message_id") == watch["mid"]:
+            setup_watches.pop(wid)
+            watch["cancelled"] = True
+        else:
+            watch = None
+    if watch:
+        edit(
+            watch,
+            "IGNORED. Setup watch stopped. Existing positions and separately delivered proposals are unchanged.",
+        )
+    else:
+        clear_callback_keyboard(cb)
+    tg(
+        "answerCallbackQuery",
+        callback_query_id=cb["id"],
+        text="Setup watch stopped." if watch else "Expired or replaced watch.",
+    )
+
+
 def handle_check_callback(cb, action, cid):
     def ack(t):
         tg("answerCallbackQuery", callback_query_id=cb["id"], text=t)
@@ -631,7 +1017,10 @@ def handle_check_callback(cb, action, cid):
         clear_callback_keyboard(cb)
         ack("This menu was replaced. Use the latest menu.")
         return
-    if time.time() - item["created"] > CHECK_TTL:
+    if (
+        time.time() - item["created"] > CHECK_TTL
+        or item.get("generation", proposal_generation) != proposal_generation
+    ):
         checks.pop(cid, None)
         if state.get("menu_id") == cid:
             state.clear()
@@ -645,56 +1034,58 @@ def handle_check_callback(cb, action, cid):
             state.clear()
         ack("Cancelled.")
         edit(item, "CANCELLED.")
+    elif action == "CD":
+        problem = item.get("problem")
+        text = f"CHECK DETAILS — VIEW ONLY\n{res['symbol']}\nReference at the check: {sc.fmt(res['price'])}\n"
+        reasons = [problem.reason] if problem else res.get("reasons", [])
+        text += "\n".join(reasons) + "\n" + res.get("note", "")
+        text += "\nNo approval is created. Use Check again for fresh data."
+        ack("Check details")
+        for start in range(0, len(text), 3500):
+            say(text[start : start + 3500])
+    elif action == "CC":
+        checks.pop(cid, None)
+        ack("Checking fresh data...")
+        edit(item, "Checking the current setup below.")
+        run_check(res["symbol"], generation=item.get("generation", proposal_generation))
+    elif action in ("CM1", "CM3", "CM15", "C2"):
+        minutes = 15 if action == "C2" else int(action[2:])
+        ack(f"Watching quietly for {minutes} minute(s). No automatic buy.")
+        start_setup_watch(cid, item, minutes)
     elif action == "C1":
         if not res["sig"] or res["status"] != "SAFE":
             ack("No valid setup right now.")
             return
         ack("Building the plan...")
+        if mode_precheck(res, "normal", cid=cid, item=item, signal=res["sig"]) is None:
+            return
         try:
             plan = ta.build_plan(res["sig"])
         except ValueError as e:
-            edit(item, f"NOT AVAILABLE: {safety.redact(str(e))}")
-            checks.pop(cid, None)
+            show_entry_problem(res, e, cid=cid, item=item)
             return
         except Exception as e:
-            edit(item, f"Error while building the plan: {safe(e)}")
-            checks.pop(cid, None)
+            show_entry_problem(res, e, cid=cid, item=item)
             return
         checks.pop(cid, None)
         edit(item, "Plan sent below. Tap Approve or Reject.")
         send_proposal(res["sig"], plan, res["note"])
-    elif action == "C2":
-        checks.pop(cid, None)
-        ack("I'll recheck in 15 minutes.")
-        edit(item, "Rechecking in 15 minutes. You'll get an update here.")
-        timer = threading.Timer(
-            900,
-            run_check,
-            args=(res["symbol"], "UPDATE after 15 min", proposal_generation),
-        )
-        timer.daemon = True
-        recheck_timers.add(timer)
-        timer.start()
     elif action in ("CN", "CW", "CQ"):
-        try:
-            ta.ensure_free_trade_slot(res["symbol"])
-        except ta.ActiveTradeError as error:
-            ack("An existing trade blocks this entry.")
-            say("NOT AVAILABLE: " + safety.redact(str(error)))
+        ack("Checking entry readiness before starting this mode...")
+        if mode_precheck(res, "manual" if action == "CN" else "normal", cid=cid, item=item) is None:
             return
-        ack("Review the calculated proposal before approving.")
         state.clear()
         if action == "CQ":
-            if prepare_algorithm_proposal(res["symbol"]):
+            if prepare_algorithm_proposal(res["symbol"], source=res, cid=cid, item=item):
                 finish_mode_menu(cid)
         elif action == "CW":
             try:
                 suggestion = algo.propose(res["symbol"])
             except ValueError as error:
-                say("No assisted setup: " + safety.redact(str(error)))
+                show_entry_problem(res, error, cid=cid, item=item)
                 return
             except Exception as error:
-                say("Algorithm data unavailable: " + safe(error))
+                show_entry_problem(res, error, cid=cid, item=item)
                 return
             suggestion["algorithm_mode"] = "assisted"
             state.update(step="algorithm_targets", signal=suggestion, menu_id=cid, t=time.time())
@@ -734,6 +1125,8 @@ def show_trading_options(res, *, cid=None, item=None, generation=None):
     if generation is None:
         generation = proposal_generation
     if generation != proposal_generation:
+        return None
+    if mode_precheck(res, cid=cid, item=item) is None:
         return None
     limits = settings.read()
     cid = cid or uuid.uuid4().hex
@@ -799,16 +1192,28 @@ def show_trading_options(res, *, cid=None, item=None, generation=None):
     return None
 
 
-def prepare_algorithm_proposal(symbol, entry=None):
+def prepare_algorithm_proposal(symbol, entry=None, *, source=None, cid=None, item=None):
+    res = source or dict(
+        symbol=symbol,
+        price=entry or 0,
+        chg=0,
+        qv=0,
+        sig=None,
+        status="WARNING",
+        reasons=[],
+        note="",
+    )
     try:
-        ta.ensure_free_trade_slot(symbol)
+        readiness.check(symbol, mode="normal")
         sig = algo.propose(symbol, entry=entry)
+        res.update(sig=sig, status="SAFE", price=sig["entry"])
+        readiness.check(symbol, mode="normal", signal=sig)
         plan = ta.build_plan(sig)
     except ValueError as error:
-        say("No algorithm proposal: " + safety.redact(str(error)))
+        show_entry_problem(res, error, cid=cid, item=item)
         return False
     except Exception as error:
-        say("Algorithm data unavailable: " + safe(error) + ". No order submitted.")
+        show_entry_problem(res, error, cid=cid, item=item)
         return False
     return send_proposal(
         sig, plan, "Algorithm-calculated levels. Review the chart and Details before approving."
@@ -834,12 +1239,37 @@ def handle_algorithm_targets(text):
     menu_id = state.get("menu_id")
     state.clear()
     try:
+        readiness.check(suggestion["symbol"], mode="normal", signal=suggestion)
         plan = ta.build_plan(suggestion)
     except ValueError as error:
-        say("No assisted proposal: " + safety.redact(str(error)))
+        show_entry_problem(
+            dict(
+                symbol=suggestion["symbol"],
+                price=suggestion["entry"],
+                chg=0,
+                qv=0,
+                sig=suggestion,
+                status="SAFE",
+                reasons=[],
+                note="",
+            ),
+            error,
+        )
         return
     except Exception as error:
-        say("Algorithm data unavailable: " + safe(error))
+        show_entry_problem(
+            dict(
+                symbol=suggestion["symbol"],
+                price=suggestion["entry"],
+                chg=0,
+                qv=0,
+                sig=suggestion,
+                status="SAFE",
+                reasons=[],
+                note="",
+            ),
+            error,
+        )
         return
     if send_proposal(
         suggestion, plan, "Bot-calculated entry/stop; your profit targets. Review before approval."
@@ -912,12 +1342,23 @@ def handle_manual(text):
     menu_id = state.get("menu_id")
     state.clear()
     try:
+        readiness.check(symbol, mode="manual", signal=sig)
         plan = ta.build_plan(sig)
     except ValueError as e:
-        say(f"Cannot use these levels: {safety.redact(str(e))}")
+        show_entry_problem(
+            dict(
+                symbol=symbol, price=entry, chg=0, qv=0, sig=sig, status="SAFE", reasons=[], note=""
+            ),
+            e,
+        )
         return
     except Exception as e:
-        say(f"Error while building the plan: {safe(e)}")
+        show_entry_problem(
+            dict(
+                symbol=symbol, price=entry, chg=0, qv=0, sig=sig, status="SAFE", reasons=[], note=""
+            ),
+            e,
+        )
         return
     if send_proposal(
         sig,
@@ -956,6 +1397,12 @@ def handle_callback(cb):
     if str(sender) != str(CHAT_ID) or str(chat) != str(CHAT_ID):
         return  # ignore strangers completely
     action, _, pid = cb.get("data", "").partition(":")
+    if action == "Q":
+        handle_scan_selection(cb, pid)
+        return
+    if action == "W":
+        handle_setup_watch_callback(cb, pid)
+        return
     if action == "H":
         command = presentation.HOME_ACTIONS.get(pid)
         tg(
@@ -1024,6 +1471,11 @@ def handle_callback(cb):
         return
     try:
         old = item["plan"]
+        readiness.check(
+            old["symbol"],
+            mode="manual" if old.get("manual_override") is True else "normal",
+            signal=item["sig"],
+        )
         fresh = (
             ta.build_plan(item["sig"], approved_bounds=old)
             if old.get("entry_mode", "legacy") != "legacy"
@@ -1032,10 +1484,36 @@ def handle_callback(cb):
     except ValueError as e:
         trade_lock.release()
         edit(item, f"NOT PLACED: {safety.redact(str(e))}")
+        send_check_card(
+            dict(
+                symbol=item["plan"]["symbol"],
+                price=item["plan"]["price"],
+                chg=0,
+                qv=0,
+                sig=item["sig"],
+                status="SAFE",
+                reasons=[],
+                note="",
+            ),
+            problem=readiness.problem(e),
+        )
         return
     except Exception as e:
         trade_lock.release()
         edit(item, f"NOT PLACED: error while checking ({safe(e)})")
+        send_check_card(
+            dict(
+                symbol=item["plan"]["symbol"],
+                price=item["plan"]["price"],
+                chg=0,
+                qv=0,
+                sig=item["sig"],
+                status="SAFE",
+                reasons=[],
+                note="",
+            ),
+            problem=readiness.problem(e),
+        )
         return
 
     if not ta.approval_bounds(old, fresh):
@@ -1108,11 +1586,13 @@ def handle_message(msg):
                 + list(discovery_views.values())
                 + list(setup_views.values())
                 + list(position_views.values())
+                + list(scan_selections.values())
             )
             checks.clear()
             discovery_views.clear()
             setup_views.clear()
             position_views.clear()
+            scan_selections.clear()
             canceled = list(pending.values())
             pending.clear()
         for card in canceled_checks:
@@ -1122,13 +1602,14 @@ def handle_message(msg):
         for timer in list(recheck_timers):
             timer.cancel()
         recheck_timers.clear()
+        setup_count = cancel_setup_watches()
         try:
             watches = ta.cancel_entry_watches()
         except Exception as error:
             say(f"Watch cancellation could not be confirmed: {safe(error)}. Inspect /status.")
             watches = 0
         say(
-            f"Cancelled {watches} untriggered entry watch(es), pending proposals, manual entry and scheduled rechecks. "
+            f"Cancelled {setup_count} setup watch(es), {watches} untriggered entry watch(es), pending proposals, manual entry and scheduled rechecks. "
             "Already submitted orders and protective OCOs remain active; /status shows them."
         )
     elif command in ("/position", "/positions"):
@@ -1512,6 +1993,10 @@ def send_setup_menu():
         "Trading setup\n\n"
         f"Maximum active trades: {limits['max_open_trades']}\n"
         f"Maximum investment per trade: {limits['max_position_usdt']} USDT (including fee reserve)\n\n"
+        f"Scope: trades — {limits['scopes']['max_open_trades']}; investment — {limits['scopes']['max_position_usdt']}.\n"
+        f"Saved investment default: {limits['saved_limits']['max_position_usdt']} USDT. Parallel count is chosen at startup.\n"
+        f"Maximum allowed parallel trades: {settings.MAX_PARALLEL_TRADES}.\n"
+        "Changes here apply only to the current session. Permanent defaults are administrator-managed.\n\n"
         "The investment is a cap; available funds, risk sizing and exchange rules can reduce it. "
         "Different pairs may run concurrently; duplicate pairs and unresolved positions block entry.\n"
         "Normal entries retain 1% risk sizing and the 3 USDT daily risk budget. "
@@ -1547,10 +2032,16 @@ def handle_setup_value(text):
         f"Maximum active trades: {limits['max_open_trades']}\n"
         f"Investment cap per trade: {limits['max_position_usdt']} USDT including fee reserve\n"
         f"Combined allocation ceiling: {em.D(limits['max_position_usdt']) * limits['max_open_trades']:f} USDT, subject to funds/risk checks.\n\n"
+        "These are maximums, not orders. Available funds and other rules may allow fewer trades.\n"
         "Applies to new entries. Existing positions and protective OCOs stay in place. "
         "Pending proposals and untriggered watches will require fresh approval. "
-        "Confirm to save these account settings.",
-        [("Confirm change", "SA"), ("Cancel", "SX")],
+        "Use for this session: choose parallel count again next startup; the investment cap returns to its saved default on restart.\n"
+        "Permanent changes require administrator approval. No setting or order changes until you confirm.",
+        [
+            ("Use for this session (default)", "SA"),
+            ("About permanent limits", "SU"),
+            ("Cancel", "SX"),
+        ],
         limits=item["limits"],
         field=field,
         value=value,
@@ -1567,18 +2058,23 @@ def invalidate_for_settings_change():
             *discovery_views.values(),
             *setup_views.values(),
             *position_views.values(),
+            *scan_selections.values(),
         ]
         pending.clear()
         checks.clear()
         discovery_views.clear()
         setup_views.clear()
         position_views.clear()
+        scan_selections.clear()
         state.clear()
     for item in items:
         edit(item, "SETTINGS CHANGED. Request a fresh selection/proposal before approval.")
     for timer in list(recheck_timers):
         timer.cancel()
     recheck_timers.clear()
+    cancel_setup_watches(
+        "SETTINGS CHANGED. Request a fresh setup watch; existing trades are unchanged."
+    )
 
 
 def handle_setup_callback(cb, action, sid):
@@ -1612,10 +2108,15 @@ def handle_setup_callback(cb, action, sid):
         state.update(step="setup_value", setup_id=sid, field=field, t=time.time())
         ack("Enter the new value in chat.")
         say(
-            "Send the maximum number of active trades (whole number, 1–100). /cancel to stop."
+            "Send the maximum number of active trades (whole number, 1–10). /cancel to stop."
             if action == "ST"
             else "Send the maximum investment per trade in USDT, for example 25 or 25.50. "
             "This includes the buy fee reserve. /cancel to stop."
+        )
+    elif action in ("SU", "SP") and item["field"] is not None:
+        ack("Administrator approval is required for a permanent change.")
+        say(
+            "Permanent defaults are administrator-managed. No permanent change has been made. An operational Helpdesk contact is not configured yet. Use the original confirmation's Use for this session button, or Cancel."
         )
     elif action == "SA" and item["field"] is not None:
         setup_views.pop(sid, None)  # A confirmation is single use even if saving fails.
@@ -1627,6 +2128,7 @@ def handle_setup_callback(cb, action, sid):
                     item["value"],
                     expected_revision=item["limits"]["revision"],
                     actor=CHAT_ID,
+                    scope="session",
                 )
                 if saved["revision"] != item["limits"]["revision"]:
                     canceled = ta.cancel_entry_watches()
@@ -1641,9 +2143,10 @@ def handle_setup_callback(cb, action, sid):
                 + safe(error),
             )
             return
-        edit(item, "SAVED. Limits apply now and remain available after restart.")
+        scope_text = "CURRENT SESSION ONLY. Choose parallel count again next startup; restart restores the saved investment cap."
+        edit(item, scope_text)
         say(
-            f"Settings saved\nMaximum active trades: {saved['max_open_trades']}\n"
+            f"Settings updated — {scope_text}\nMaximum active trades: {saved['max_open_trades']}\n"
             f"Maximum investment per trade: {saved['max_position_usdt']} USDT\n"
             f"Untriggered watches canceled: {canceled}. Existing positions remain protected.\n"
             "Every new buy still requires approval. Use /setup to view or change limits."
@@ -2068,16 +2571,60 @@ def request_shutdown():
         )
 
 
+def prompt_parallel_count():
+    print(
+        f"Choose how many parallel trades to allow this run (1–{settings.MAX_PARALLEL_TRADES}). This does not place any trade.",
+        flush=True,
+    )
+    while True:
+        try:
+            value = (
+                input(f"Parallel trades [1; maximum {settings.MAX_PARALLEL_TRADES}]: ").strip()
+                or "1"
+            )
+            return settings.parse_value("max_open_trades", value)
+        except ValueError as error:
+            print(str(error), flush=True)
+        except (EOFError, KeyboardInterrupt):
+            print(
+                "\nStartup canceled before connecting. Existing Binance orders are unchanged; start again to resume local monitoring.",
+                flush=True,
+            )
+            return None
+
+
 def main():
+    global proposal_generation
     if not TOKEN or not CHAT_ID:
         raise SystemExit("Telegram configuration missing")
+    print(BRANDING, flush=True)
+    print(f"Environment: {mode_label()}", flush=True)
+    parallel_count = prompt_parallel_count()
+    if parallel_count is None:
+        return
     em.STOP.clear()
+    with pend_lock:
+        proposal_generation += 1
+        for watch in setup_watches.values():
+            watch["cancelled"] = True
+        for cache in (
+            pending,
+            checks,
+            setup_watches,
+            scan_selections,
+            discovery_views,
+            setup_views,
+            position_views,
+            state,
+            last_preview,
+            last_scan,
+        ):
+            cache.clear()
     runtime_health.reset()
+    settings.reset_session()
     restore_signals = shutdown_control.install(request_shutdown)
     lock = None
     try:
-        print(BRANDING, flush=True)
-        print(f"Environment: {mode_label()}", flush=True)
         print("[1/5] Scanner module ready; initial market scan pending.", flush=True)
         print("[2/5] Verifying Spot exchange connection...", flush=True)
         em.initialize()
@@ -2087,9 +2634,27 @@ def main():
         print("[3/5] Acquiring account instance lock...", flush=True)
         lock = em.instance_lock()
         print("[3/5] Instance lock acquired.", flush=True)
+        try:
+            limits = settings.read()
+        except RuntimeError as error:
+            # Invalid settings must block buys, not recovery of existing stops.
+            print(
+                "Trading settings unavailable; new entries blocked. Recovery monitoring continues. "
+                + safety.safe_error(error),
+                flush=True,
+            )
+        else:
+            settings.update(
+                "max_open_trades",
+                parallel_count,
+                expected_revision=limits["revision"],
+                actor="console operator",
+                scope="session",
+            )
         _run_main()
     finally:
         em.STOP.set()
+        cancel_setup_watches(render=False)
         for timer in recheck_timers:
             timer.cancel()
         # Hold the process/account lock until in-flight durable transitions finish.

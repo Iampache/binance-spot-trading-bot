@@ -686,6 +686,16 @@ def submit_order(rec, item):
         return refresh_order(rec, item)  # never resubmit an ambiguous request
     initialize()  # Reverify authenticated UID before a new submission.
     if item["side"] == "BUY":
+        account = ex.signed_read(get_client(), "get_account")
+        if (
+            str(account.get("uid")) != CONTEXT["account_uid"]
+            or account.get("accountType") != "SPOT"
+            or account.get("canTrade") is not True
+        ):
+            raise safety.RecoveryValidationError(
+                "Account trading permission is disabled or unverified",
+                reason_code="ACCOUNT_TRADE_DISABLED",
+            )
         if STOP.is_set():
             raise ValueError("Shutdown in progress; no entry submitted")
         bounds = rec.get("approved_bounds", {})

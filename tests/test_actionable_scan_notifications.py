@@ -68,7 +68,15 @@ def test_mixed_scan_only_interrupts_for_the_real_approvable_proposal(sim, messag
     report = "\n".join(text for text, _ in messages)
     assert "NEARUSDT: Blocked" in report and "ONDOUSDT: Already alerted recently" in report
     assert "Proposals delivered: 1" in report and "Dubai" in report
-    assert not any("reply_markup" in params for _, params in messages)
+    selections = [
+        json.loads(params["reply_markup"]) for _, params in messages if "reply_markup" in params
+    ]
+    assert all(
+        button["callback_data"].startswith("Q:")
+        for markup in selections
+        for row in markup["inline_keyboard"]
+        for button in row
+    )
     assert len(tg.pending) == 1 and not sim.writes
 
 

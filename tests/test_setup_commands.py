@@ -50,7 +50,7 @@ def confirmation(action="ST", value="2"):
     "action,value,field,expected",
     [("ST", "3", "max_open_trades", 3), ("SI", "25.50", "max_position_usdt", "25.50")],
 )
-def test_setup_review_then_explicit_confirmation_persists_limits(
+def test_setup_review_then_explicit_session_confirmation_changes_effective_limits(
     sim, ui, action, value, field, expected
 ):
     sid, item = confirmation(action, value)
@@ -58,6 +58,7 @@ def test_setup_review_then_explicit_confirmation_persists_limits(
     assert "Confirm trading limits" in item["text"]
     tg.handle_callback(click("SA", sid, item))
     assert settings.read()[field] == expected and settings.read()["revision"] == 1
+    assert settings.read()["scopes"][field] == "session"
     assert not tg.setup_views and not tg.state and not tg.pending and not sim.writes
     tg.handle_callback(click("SA", sid, item))
     assert settings.read()["revision"] == 1

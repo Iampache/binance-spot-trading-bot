@@ -3,6 +3,30 @@
 Release notes describe code changes. Git commits provide the exact history.
 Account settings, keys and trade journals remain local and are ignored by Git.
 
+## 1.10.0 — 2026-11-01
+
+- Add owner-requested plain-language rejection cards with numbered known reasons,
+  Details, Ignore, quiet 1/3/15-minute setup watches and matching remedial controls.
+  Keep automatic scanning proposals-only; add fresh pair navigation to `/scanlog`.
+- Observe throughout the selected period and notify only for a fresh validated
+  proposal. Bind watches to account, settings revision, generation and deadline;
+  cancellation/late delivery cannot register buying authority. Watches are
+  read-only and reserve neither funds nor slots.
+- Add early and repeated capacity, ownership, accounting, permission and funding
+  checks. Calculate two-leg minimum funding from pair rules and fee reserves,
+  mark pre-level estimates provisional and retain normal/Manual policy boundaries.
+- Ask for 1–10 parallel trades at terminal startup before exchange/Telegram
+  connections, defaulting to one. Make Telegram `/setup` changes session-only;
+  retain durable baselines/audits and clamp old larger counts without closing
+  positions. No ordinary-chat permanent-save or operational Helpdesk is added.
+- Invalidate approvals and untriggered watches after confirmed limit changes;
+  recheck authenticated account trading permission before a new buy submission.
+  Compare approved limit values as well as revisions to reject reused session
+  ordinals. Invalid settings block entries while startup recovery still runs.
+  Preserve filled positions, journal compatibility and mandatory final approval.
+- Add 75 regressions for funding, entry gates, watch lifecycle/delivery races,
+  session/persistent isolation, legacy settings and startup order/ceiling.
+
 ## 1.9.0 — 2026-11-01
 
 - Reserve automatic scan Telegram messages for validated proposals with review

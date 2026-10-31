@@ -11,6 +11,7 @@ MAX_DAILY_LOSS_USD = 3
 
 
 RECONCILIATION_REASONS = {
+    "ACCOUNT_TRADE_DISABLED": "Exchange trading permission is disabled or unavailable; no buy was submitted.",
     "INVALID_NUMERIC_VALUE": "A numeric value is invalid or non-finite; validation cannot complete.",
     "INVALID_ROUNDING_RULE": "A quantity/price rounding rule is invalid; validation cannot complete.",
     "SPOT_ORDER_SUPPORT_MISSING": "The pair lacks required active USDT Spot/OCO order support.",
