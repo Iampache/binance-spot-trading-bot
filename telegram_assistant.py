@@ -78,8 +78,8 @@ HELP = (
     "Does NOT close a position or cancel its protective OCOs.\n\n"
     "After /check:\n"
     "1 — scanner plan; 2 — recheck in 15 min; 3 — manual risk override\n"
-    "Enter now — type STOP TP1 TP2\n"
-    "Wait at my price — type ENTRY STOP TP1 TP2\n"
+    "Use current price — type STOP TP1 TP2\n"
+    "Wait for my price — type ENTRY STOP TP1 TP2\n"
     "Now preset — suggested levels without typing\n\n"
     "Proposal buttons: Details (full explanation), Approve or Reject. "
     "Buying always needs approval; one active/unresolved trade maximum."
@@ -494,15 +494,7 @@ def handle_check_callback(cb, action, cid):
             except Exception as error:
                 say(f"Cannot build preset: {safe(error)}")
         else:
-            say(
-                "MANUAL RISK OVERRIDE. "
-                + (
-                    "Enter now: send STOP TP1 TP2 (3 numbers). Entry cap uses a fresh ask + 0.2%."
-                    if action == "CN"
-                    else "Wait at my price: send ENTRY STOP TP1 TP2 (4 numbers). A 15-minute local watch starts after approval."
-                )
-                + " Final quantity/cost and risk require approval. /cancel to stop."
-            )
+            say(manual_levels_prompt(res, state["entry_mode"]))
     elif action == "C3":
         ack("Manual override mode.")
         edit(
@@ -518,26 +510,55 @@ def handle_check_callback(cb, action, cid):
             t=time.time(),
         )
         say(
-            f"MANUAL entry for {res['symbol'][:-4]}/USDT. Current price: {sc.fmt(res['price'])}\n"
-            f"Send 4 numbers in one message:\nENTRY STOP TP1 TP2\n"
-            f"Example: {sc.fmt(res['price'])} {sc.fmt(res['price'] * 0.97)} "
-            f"{sc.fmt(res['price'] * 1.04)} {sc.fmt(res['price'] * 1.07)}\n"
-            "Manual override bypasses liquidity/strategy checks, 1% sizing and the 3 USDT daily-loss gate. "
-            "The 12 USDT cap, one active trade and valid protective OCOs remain mandatory. "
-            "You must approve the final risk-override proposal before any buy.\n"
-            "Four numbers select WAIT AT MY PRICE: a 15-minute local watch, no resting buy. "
-            "For faster entry choose a button below. /cancel to stop.",
+            f"Manual trade | {res['symbol'][:-4]}/USDT\n"
+            f"Last checked price: {sc.fmt(res['price'])}\n\n"
+            "Choose how to enter:\n"
+            "Current price — you choose the stop and profit targets.\n"
+            "My price — wait up to 15 minutes for your entry price.\n"
+            "Preset levels — stop -3%, profit targets +5% and +8%.\n\n"
+            "Nothing is bought until you approve the final proposal.\n"
+            "Manual risk override: liquidity/strategy checks, 1% sizing and the 3 USDT daily-loss gate are bypassed.\n"
+            "12 USDT cap, one active trade and protective OCOs still apply.\n"
+            "/cancel to stop.",
             reply_markup=json.dumps(
                 {
                     "inline_keyboard": [
-                        [{"text": "Enter now: type 3 levels", "callback_data": f"CN:{cid}"}],
-                        [{"text": "Wait at my price: type 4 levels", "callback_data": f"CW:{cid}"}],
-                        [{"text": "Now preset: SL -3%, TP +5%/+8%", "callback_data": f"CQ:{cid}"}],
+                        [{"text": "Use current price", "callback_data": f"CN:{cid}"}],
+                        [{"text": "Wait for my price", "callback_data": f"CW:{cid}"}],
+                        [
+                            {
+                                "text": "Use preset levels (-3%, +5%, +8%)",
+                                "callback_data": f"CQ:{cid}",
+                            }
+                        ],
                         [{"text": "Cancel", "callback_data": f"CX:{cid}"}],
                     ]
                 }
             ),
         )
+
+
+def manual_levels_prompt(res, mode):
+    price = em.D(res["price"])
+    stops = [price * em.D(multiplier) for multiplier in (".97", "1.04", "1.07")]
+    watch = mode == "watch"
+    values = [price, *stops] if watch else stops
+    return (
+        f"{'Wait for my price' if watch else 'Use current price'} | {res['symbol'][:-4]}/USDT\n\n"
+        f"Send {'4' if watch else '3'} prices in ONE message:\n"
+        + ("ENTRY STOP TP1 TP2\n" if watch else "STOP TP1 TP2\n")
+        + ("ENTRY = your maximum buy price\n" if watch else "")
+        + "STOP = stop-loss trigger price\nTP1 / TP2 = first / second profit targets\n\n"
+        + "Example format only: "
+        + " ".join(sc.fmt(value) for value in values)
+        + "\n\n"
+        + (
+            "After approval, wait up to 15 minutes for your price."
+            if watch
+            else "A fresh entry quote and maximum buy price appear in the final proposal."
+        )
+        + "\nReview and approve before buying. /cancel to stop."
+    )
 
 
 def handle_manual(text):

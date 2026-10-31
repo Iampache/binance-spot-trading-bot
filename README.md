@@ -457,3 +457,12 @@ Trade execution: Requires Telegram approval
 Testnet explicitly says “Binance Spot Testnet.” With automatic scanning off, the
 status instead says “Disabled — use /check.” Connection text is reached only
 after exchange initialization; these labels do not change trade authorization.
+
+The manual-entry screen now starts with a choice rather than asking for four
+numbers immediately: **Use current price**, **Wait for my price**, or **Use preset
+levels (-3%, +5%, +8%)**. After selecting a custom mode, a short prompt explains
+STOP and TP1/TP2 and requests only the three or four prices that mode needs, with
+an explicitly illustrative format example. Four-number direct entry remains
+compatible with the existing watch flow. Presets remain human-approved example
+levels, not a trading recommendation. Final manual-risk disclosures and explicit
+approval are preserved; buttons alone never authorize a purchase.

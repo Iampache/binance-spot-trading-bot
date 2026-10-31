@@ -384,3 +384,14 @@ scanning and Telegram-approval wording between welcome and console readiness.
 The existing startup regression also checks the auto-scan disabled and explicit
 Testnet variants. Full local suite: **277 passed, 3 native Windows skips**, three
 upstream warnings. No live account access or trades; trading behavior unchanged.
+
+Manual-entry clarity follow-up replaces the initial four-number instruction with
+a choice of current-price, wait-at-price or preset modes. Mode-specific prompts
+explain stop-loss and profit targets and show an example format. The existing
+fast-flow test now checks the clearer labels and three-price prompt while still
+requiring a pending proposal and zero exchange writes before approval. Risk
+exceptions, hard limits, watch behavior and execution logic are unchanged.
+
+Full local suite remains **277 passed, 3 native Windows skips**, three upstream
+warnings; the updated focused fast-flow regression also passes. Ruff/format,
+Bandit and whitespace checks pass. No live account access or real trades.
