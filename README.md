@@ -39,12 +39,20 @@ On Windows 11, use PowerShell (no production credentials are needed for tests):
 
 ```powershell
 py -3.12 -m venv .venv
+$env:PYYAML_FORCE_LIBYAML = "0"
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt -c requirements.lock
 $env:PYTHON_DOTENV_DISABLED = "1"
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe -m ruff check .
 .\.venv\Scripts\python.exe -m ruff format --check .
 ```
+
+For **Command Prompt**, set the same build option with
+`set PYYAML_FORCE_LIBYAML=0` before installing development dependencies. PyYAML
+6.0.3 (required by Bandit) has no Python 3.15 wheel. This supported option builds
+its pure-Python implementation without Microsoft C++ Build Tools. It does not
+disable dependency checks, TLS verification, or any trading safety control.
+Only development tooling needs PyYAML; runtime dependencies already install normally.
 
 The Windows dependency `pywin32` is installed automatically through portalocker;
 the constraints snapshot pins version 312 on Windows only. Version 311 lacks

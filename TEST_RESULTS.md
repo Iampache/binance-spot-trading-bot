@@ -109,3 +109,18 @@ After this correction, the complete local suite passes (113 tests, three upstrea
 warnings), with lint, formatting, Bandit and dependency checks passing. The Python
 3.15 Windows CI installation step is the dependency-resolution regression check: it
 would fail with the original 311 pin before the test suite starts.
+
+
+## Compiler-free Windows development installation
+
+PyYAML 6.0.3 has no CPython 3.15 wheel. The development installation therefore
+attempted to compile its optional extension, failing on Windows without Visual
+C++ Build Tools. PyYAML's supported `PYYAML_FORCE_LIBYAML=0` option builds the
+pure-Python implementation instead. It is now configured in CI and documented
+for PowerShell and Command Prompt. Runtime requirements are unchanged.
+
+The option was verified against the official checksum-verified PyYAML source and
+used to build `pyyaml-6.0.3-py3-none-any.whl` with normal pip build isolation and
+TLS verification. That wheel was installed into the development environment to
+run the complete offline suite and Bandit with `yaml.__with_libyaml__ == False`.
+Native Windows CI results remain separate from this local Linux verification.

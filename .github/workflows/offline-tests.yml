@@ -21,6 +21,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     env:
+      # PyYAML has no CPython 3.15 wheel; use its supported pure-Python
+      # implementation when a source build is needed, without C++ tooling.
+      PYYAML_FORCE_LIBYAML: "0"
       PYTHON_DOTENV_DISABLED: "1"
       USE_TESTNET: "true"
       ALLOW_LIVE_TRADING: "false"
