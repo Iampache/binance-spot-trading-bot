@@ -13,7 +13,17 @@ MAX_DAILY_LOSS_USD = 3
 def safe_error(error):
     # Do not stringify arbitrary exchange/HTTP exceptions: request URLs, bodies,
     # headers and signatures may contain credentials. No credential discovery.
-    return f"{type(error).__name__}: operation failed; reconcile exchange state"
+    details = []
+    code = getattr(error, "code", None)
+    status = getattr(error, "status_code", None)
+    # Accept numeric metadata only. A string-valued attribute may contain a
+    # response body or secret, and bool is not a meaningful numeric error code.
+    if type(code) is int:
+        details.append(f"API code {code}")
+    if type(status) is int and 100 <= status <= 599:
+        details.append(f"HTTP {status}")
+    metadata = f" ({', '.join(details)})" if details else ""
+    return f"{type(error).__name__}{metadata}: operation failed; reconcile exchange state"
 
 
 def redact(text):
