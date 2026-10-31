@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 import exchange as ex
 import safety
 from file_locking import ProcessLock
+from telegram_formatting import ticker_link_options
 
 load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
@@ -125,7 +126,7 @@ def alert(message):
         try:
             response = requests.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                data={"chat_id": chat, "text": message},
+                data={"chat_id": chat, "text": message, **ticker_link_options(message)},
                 timeout=12,
             )
             response.raise_for_status()

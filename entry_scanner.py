@@ -37,6 +37,7 @@ from dotenv import load_dotenv
 
 import safety
 from branding import BRANDING
+from telegram_formatting import spot_url, ticker_link_options
 
 load_dotenv()
 
@@ -264,7 +265,7 @@ def send(msg):
         try:
             requests.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                data={"chat_id": chat, "text": msg},
+                data={"chat_id": chat, "text": msg, **ticker_link_options(msg)},
                 timeout=10,
             ).raise_for_status()
         except Exception as e:
@@ -286,7 +287,7 @@ def build_msg(s, note):
         f"Target 1 {fmt(s['t1'])} (1.5R) | Target 2 {fmt(s['t2'])} (2.5R)\n"
         f"RSI {s['rsi']:.0f} | 24h {s['chg24']:+.1f}%{size}\n{note}\n"
         f"Place the stop/OCO the moment you buy. Skip it if price already moved >1% from entry.\n"
-        f"https://www.binance.com/en/trade/{base}_USDT"
+        f"{spot_url(s['symbol'])}"
     )
 
 

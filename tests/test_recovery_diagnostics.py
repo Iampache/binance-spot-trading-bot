@@ -35,7 +35,7 @@ def test_zero_inventory_missing_fee_reference_is_explained_then_closes_on_eviden
     assert any("BNB_REFERENCE_MISSING" in text for text in messages)
     assert not any("TRADE CLOSED" in text for text in messages)
     assert len(sim.writes) == writes and sim.free["FOO"] == 8
-    with pytest.raises(ValueError, match="unresolved"):
+    with pytest.raises(ta.ActiveTradeError):
         ta.build_plan(sig())
     sim.response_override = None
     monitor(rec, max_checks=1)

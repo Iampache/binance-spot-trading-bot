@@ -30,7 +30,7 @@ explicit fill-time USDT reference valuation; missing fee evidence blocks final P
 not protection/liquidation. Pending approval cancellation never removes existing
 OCOs. Active closing remains available through the existing confirmed CLI path.
 
-Validation: **357 passed, 3 native Windows skips**, three upstream deprecation
+Validation: **370 passed, 3 native Windows skips**, three upstream deprecation
 warnings; Ruff/format, Bandit, pip dependency and whitespace checks pass. Tests use
 actual SDK transport simulations with sockets/HTTP forbidden.
 See TEST_RESULTS.md for exact totals, SECURITY_REVIEW.md for the implementation
@@ -71,3 +71,10 @@ Chart cards now distinguish a setup from completed execution checks and label
 their price as a reference. Regression cases demonstrate that the same normal
 risk planner can reject 6.998 and accept 6.995 with identical exits; on-demand
 scanning never implies a Manual risk override. No thresholds are loosened.
+
+
+Compact tickers now carry validated Binance Spot text-link entities, including
+UTF-16 emoji offsets, with web previews disabled and no rich-text mode changes.
+The existing durable trade gate names the actual pair and distinguishes a same-
+pair position from another occupied slot, a pending entry/watch or reconciliation.
+No proposal is falsely labeled an active trade, and no blocking checks are removed.

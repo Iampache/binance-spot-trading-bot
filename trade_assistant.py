@@ -29,6 +29,34 @@ class PlanChangedError(ValueError):
     """Final approval bounds changed before any buy was submitted."""
 
 
+class ActiveTradeError(ValueError):
+    """The account's existing durable trade slot prevents a new entry."""
+
+
+def active_trade_reason(symbol, records):
+    if len(records) != 1:
+        names = ", ".join(sorted({record["symbol"] for record in records}))
+        return f"Active or unresolved trades: {names}; only one active trade is allowed."
+    record = records[0]
+    name = record["symbol"]
+    if record.get("entry_watch", {}).get("active"):
+        return f"{name} entry watch is already active; new entries are blocked."
+    flat = False
+    try:
+        flat = em.inventory(record) == 0 and any(
+            order["side"] == "BUY" and em.D(order["executedQty"]) > 0 for order in record["orders"]
+        )
+    except (ValueError, RuntimeError):
+        pass  # The record still blocks entry; missing evidence cannot free the slot.
+    if record["state"] == "needs_attention" or flat:
+        return f"{name} trade is awaiting reconciliation; new entries are blocked."
+    if record["state"] in ("intent", "buy_submitting"):
+        return f"{name} entry is pending confirmation; duplicate entries are blocked."
+    if name == symbol:
+        return f"{name} trade already in progress; duplicate entry blocked."
+    return f"{name} trade is in progress; only one active trade is allowed."
+
+
 def scan_candidates():
     note = sc.btc_note()
     candidates = {}
@@ -93,8 +121,9 @@ def build_plan(sig, *, approved_bounds=None, watch_id=None):
     em.require_trade_permission()
     if sc.RISK_PCT != 1 or MAX_POSITION_USDT != 12 or MAX_OPEN_TRADES != 1:
         raise ValueError("Required limits: 1% risk, 12 USDT position, one open trade")
-    if any(not empty_watch(r, watch_id) for r in em.active_trades()):
-        raise ValueError("Open or unresolved bot trade exists")
+    blocking = [record for record in em.active_trades() if not empty_watch(record, watch_id)]
+    if blocking:
+        raise ActiveTradeError(active_trade_reason(sig["symbol"], blocking))
     c = em.get_client()
     symbol = sig["symbol"]
     ticker = c.get_ticker(symbol=symbol)
@@ -294,8 +323,9 @@ def execute(plan, *, approval=None):
         raise ValueError("Explicit unchanged Telegram approval bounds required")
     with em.operation_lock():
         em.require_trade_permission()
-        if em.active_trades():
-            raise RuntimeError("Another tracked trade is active or unresolved")
+        blocking = em.active_trades()
+        if blocking:
+            raise RuntimeError(active_trade_reason(plan["symbol"], blocking))
         if any(r.get("approval_id") == approval["approval_id"] for r in em.load_trades()):
             raise ValueError("Approval already consumed")
         # Rebuild immediately under account operation lock to enforce risk, filters,

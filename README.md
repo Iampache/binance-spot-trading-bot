@@ -588,3 +588,29 @@ state, fees or filters may therefore change eligibility between requests. Only
 explicitly choosing Manual mode enables its separately disclosed exceptions.
 The proposal and final pre-submission checks still bind price, quantity, cost,
 exit levels and risk and require Telegram approval. No risk threshold changed.
+
+## Clickable Spot tickers and active-pair reasons (v1.1.6)
+
+Telegram tickers such as UNIUSDT and UNI/USDT link directly to
+`https://www.binance.com/en-AE/trade/UNI_USDT?type=spot`. This uses Telegram
+text-link entities with UTF-16 offsets, preserving the compact visible text and
+existing buttons; no HTML/Markdown mode is enabled. Link previews are disabled.
+Multiple candidates link to their respective pairs, including the existing pair
+mentioned as a blocker. Check/status/result messages and edited proposals retain
+links. Asset paths are validated/encoded on the fixed Binance host. Clicking a
+link opens the Spot page; it never authorizes a bot order.
+
+The same one-active/unresolved-trade gate now explains what occupies the slot:
+
+- Same pair with a recorded active position: “UNIUSDT trade already in progress;
+  duplicate entry blocked.”
+- Another pair requested while UNI is active: “UNIUSDT trade is in progress;
+  only one active trade is allowed.”
+- An armed entry watch: explicitly waiting on that existing watch.
+- An unresolved or flat-unaccounted record: explicitly awaiting reconciliation.
+- An entry intent awaiting confirmation: explicitly pending, not claimed filled.
+
+A proposal alone is not described as an active position. No state is cleared and
+no risk/ownership/duplicate-instance or approval check is weakened. Typed
+`ActiveTradeError` remains a ValueError for existing handlers; regressions assert
+the gate itself instead of depending on the retired generic wording.

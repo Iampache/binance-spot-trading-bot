@@ -89,7 +89,7 @@ def test_unknown_buy_blocks_retry_and_does_not_liquidate(sim, monkeypatch):
     assert len(sim.writes) == 1
     em.recover_trades()
     assert len(sim.writes) == 1
-    with pytest.raises(ValueError, match="Open or unresolved"):
+    with pytest.raises(ta.ActiveTradeError):
         ta.build_plan(sig())
 
 
@@ -110,7 +110,7 @@ def test_restart_recovery_protected_ocos_and_refuses_duplicate(sim, monkeypatch)
     writes = len(sim.writes)
     em.recover_trades()
     assert len(sim.writes) == writes
-    with pytest.raises(ValueError, match="Open or unresolved"):
+    with pytest.raises(ta.ActiveTradeError):
         ta.build_plan(sig())
 
 

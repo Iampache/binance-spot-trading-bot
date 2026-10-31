@@ -120,14 +120,14 @@ def test_active_trade_block_still_displays_all_levels_without_new_approval(scan,
     em.new_trade(plan)  # unresolved journal must block another buy
     monkeypatch.setattr(ta, "scan_candidates", lambda: ({"FOOUSDT": sig()}, "BTC downtrend"))
     result = tg.scan_once()[0]
-    assert "blocked — Open or unresolved bot trade exists" in result
+    assert "blocked — FOOUSDT entry is pending confirmation" in result
     assert "PREVIEW ONLY" in result
     for field, value in (("Entry", "100"), ("SL", "97"), ("TP1", "104.5"), ("TP2", "107.5")):
         assert f"{field}: {value}" in result
     assert "fresh executable proposal" in result
     telegram = "\n".join(scan)
     assert "Potential Candidate Detected" in telegram
-    assert "Reason for rejection: Open or unresolved bot trade exists" in telegram
+    assert "Reason for rejection: FOOUSDT entry is pending confirmation" in telegram
     assert "\nEntry: 100\nSL: 97\nTP1: 104.5\nTP2: 107.5\n" in telegram
     assert "SCAN RESULTS" not in telegram and "Git:" not in telegram
     assert "BTC downtrend" in telegram
@@ -170,7 +170,7 @@ def test_show_pr_retrieves_blocked_candidate_without_order_or_approval(
     text = "\n".join(scan)
     assert "VIEW ONLY" in text and "UTC" in text
     assert "Ticker: FOOUSDT" in text and "Current status: Blocked" in text
-    assert "Reason for rejection: Open or unresolved" in text
+    assert "Reason for rejection: FOOUSDT entry is pending confirmation" in text
     for field in ("Entry:", "SL:", "TP1:", "TP2:"):
         assert field in text
     assert not tg.pending and not sim.writes

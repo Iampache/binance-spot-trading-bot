@@ -222,7 +222,7 @@ def test_07_third_asset_commissions_block_new_entries(sim, monkeypatch):
         sim.fill(sim.orders[item["orders"][0]["orderId"]], price="104.5")
     with pytest.raises(ex.Uncertain, match="Third-asset"):
         em.reconcile_trade(rec)
-    with pytest.raises(ValueError, match="Open or unresolved"):
+    with pytest.raises(ta.ActiveTradeError):
         ta.build_plan(sig())
 
 
@@ -621,7 +621,7 @@ def test_actual_base_buy_fee_leaves_tracked_dust_without_selling_user_holdings(s
         em.reconcile_trade(rec)
     assert sim.free["FOO"] > 5
     assert em.inventory(em.load_trades()[0]) > 0
-    with pytest.raises(ValueError, match="Open or unresolved"):
+    with pytest.raises(ta.ActiveTradeError):
         ta.build_plan(sig())
 
 

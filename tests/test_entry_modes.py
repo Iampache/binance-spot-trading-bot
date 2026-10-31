@@ -65,7 +65,7 @@ def test_watch_below_market_waits_then_executes_once_with_protection(sim, monkey
     assert rec["state"] == "watching_entry"
     assert not em.reconcile_trade(rec) and not sim.writes
     assert "ENTRY WATCH" in em.status_report() and not sim.writes
-    with pytest.raises(ValueError, match="unresolved"):
+    with pytest.raises(ta.ActiveTradeError):
         ta.build_plan(signal("now"))
     sim.price = D(100)
     assert not em.reconcile_trade(rec)
@@ -239,7 +239,7 @@ def test_watch_crashes_at_journal_boundaries_never_duplicate_buy(sim, monkeypatc
     assert sim.free["FOO"] >= D(8)
     for record in em.active_trades():
         # Any unknown request keeps its journal and blocks another entry.
-        with pytest.raises(ValueError, match="unresolved"):
+        with pytest.raises(ta.ActiveTradeError):
             ta.build_plan(signal("now"))
         if not any(o["status"] == "UNKNOWN" for o in record["orders"]):
             assert em.coverage(record) >= em.inventory(record)

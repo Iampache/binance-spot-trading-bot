@@ -128,7 +128,7 @@ def test_manual_cannot_trade_with_existing_or_uncertain_inventory(sim, monkeypat
     monkeypatch.setattr(em, "monitor_trade", lambda rec: None)
     first = ta.build_plan(sig())
     ta.execute(first, approval=approved(first))
-    with pytest.raises(ValueError, match="Open or unresolved"):
+    with pytest.raises(ta.ActiveTradeError):
         ta.build_plan(manual_signal())
 
 

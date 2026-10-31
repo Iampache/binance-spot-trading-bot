@@ -46,6 +46,7 @@ import exit_manager as em
 import safety
 import trade_assistant as ta
 from branding import BRANDING
+from telegram_formatting import ticker_link_options
 
 TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
@@ -109,15 +110,19 @@ def tg(method, **params):
 
 
 def say(text, **extra):
+    if "entities" not in extra and "parse_mode" not in extra:
+        extra = {**ticker_link_options(text), **extra}
     return tg("sendMessage", chat_id=CHAT_ID, text=text, **extra)
 
 
 def edit(item, status):
+    text = item["text"] + "\n\n" + status
     tg(
         "editMessageText",
         chat_id=CHAT_ID,
         message_id=item["mid"],
-        text=item["text"] + "\n\n" + status,
+        text=text,
+        **ticker_link_options(text),
     )
 
 

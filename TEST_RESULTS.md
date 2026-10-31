@@ -494,3 +494,18 @@ strategy, risk checks, approvals and exchange execution are unchanged.
 
 Full local result: **357 passed, 3 native Windows skips**, three upstream warnings.
 Ruff/format, Bandit and whitespace checks pass. No live account access or trades.
+
+## Spot ticker links and pair-specific blocked reasons (v1.1.6)
+
+Thirteen new regressions verify exact en-AE Spot URLs, UTF-16 entity offsets after
+emoji, slash and encoded non-ASCII tickers, URL/other-quote rejection, unchanged
+text/buttons across send/edit, result-alert transport with synthetic credentials
+and no network, duplicate same-pair blocking, another-pair slot explanation,
+watch/reconciliation distinction, and a suggestion alone not becoming a position.
+Existing duplicate/recovery tests now assert the typed ActiveTradeError rather
+than the old presentation string, preserving the requirement that entries stop.
+
+Full local result: **370 passed, 3 native Windows skips**, three upstream warnings.
+Ruff/format, Bandit, dependency and whitespace checks pass. No live Binance or
+Telegram service, production credentials or real trades were used. Opening these
+links remains a user action; the agent did not access a Binance account.
