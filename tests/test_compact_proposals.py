@@ -115,6 +115,8 @@ def test_identity_is_only_in_startup_not_routine_telegram_output(sim, monkeypatc
     p = ta.build_plan(sig())
     startup = tg.startup_text()
     assert BRANDING in startup and tg.mode_label() in startup
+    assert "Environment:" in startup and "Order approval: Required" in startup
+    assert "REAL MONEY" not in startup and "fake money" not in startup
     messages = []
     monkeypatch.setattr(tg, "say", lambda text, **kw: messages.append(text))
     tg.handle_message({"chat": {"id": tg.CHAT_ID}, "from": {"id": tg.CHAT_ID}, "text": "/status"})

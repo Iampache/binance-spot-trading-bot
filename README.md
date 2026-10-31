@@ -436,3 +436,11 @@ retain a generic recovery-sale label where the cause is unknown. The old generic
 “Emergency exit reconciled” Telegram alert is removed in favor of the verified
 result report, preserving pending fee valuation and remaining-position information.
 Pending, undelivered result messages adopt the new format on retry.
+
+Startup wording now uses **Live Spot** or **Spot Testnet** as the environment name,
+including the welcome, Windows window title and console initialization. The
+“REAL MONEY” / “fake money” wording is retired. The welcome reports TRBT online,
+scan cadence, required order approval and the primary commands. Launcher/startup
+messages distinguish module readiness, verified exchange connection, account lock,
+position reconciliation and Telegram availability. No connection, scan, order or
+configuration logic was changed; these are presentation changes only.

@@ -118,7 +118,7 @@ def edit(item, status):
 
 
 def mode_label():
-    return "LIVE - REAL MONEY" if ta.LIVE else "TESTNET - fake money"
+    return "Live Spot" if ta.LIVE else "Spot Testnet"
 
 
 # ---------- proposals (Approve / Reject) ----------
@@ -870,9 +870,14 @@ def scanner_loop():
 
 
 def startup_text():
+    schedule = "Every 15 minutes" if AUTO_SCAN else "Off — use /check"
     return (
-        f"{BRANDING}\n\n[{mode_label()}]\nAssistant started. "
-        f"{'Scanning every 15 min. ' if AUTO_SCAN else ''}Send /check to check a coin, /help for commands."
+        f"{BRANDING}\n\n"
+        f"TRBT is online\nEnvironment: {mode_label()}\n"
+        f"Market scans: {schedule}\nOrder approval: Required\n\n"
+        "/check COIN — review a trading setup\n"
+        "/status — view positions and protection\n"
+        "/help — view all commands"
     )
 
 
@@ -880,11 +885,11 @@ def startup_text():
 def _run_main():
     if not TOKEN or not CHAT_ID:
         raise SystemExit("TELEGRAM_TOKEN and TELEGRAM_CHAT_ID must be set in .env")
-    print("[4/5] Recovering saved trades...", flush=True)
+    print("[4/5] Reconciling saved positions...", flush=True)
     unresolved = em.recover_trades()
     active = sum(record["state"] != "closed" for record in unresolved)
     print(
-        f"[4/5] Recovery pass completed | {active} active/unresolved record(s); "
+        f"[4/5] Reconciliation pass complete | {active} active/unresolved record(s); "
         + ("monitoring continues." if active else "no active positions."),
         flush=True,
     )
@@ -894,7 +899,7 @@ def _run_main():
             workers.add(worker)
             worker.start()
     print("=" * 60)
-    print(f" Telegram Trade Assistant - {mode_label()}")
+    print(" Trading configuration")
     print(
         f" BNB fee accounting: {'ON' if em.ALLOW_BNB_FEES else 'OFF'} | candidate notifications: {'ON' if SCAN_CANDIDATE_NOTIFICATIONS else 'OFF'}"
     )
@@ -909,13 +914,13 @@ def _run_main():
         f" All entries: max ${ta.MAX_POSITION_USDT} per trade | max {ta.MAX_OPEN_TRADES} active/unresolved"
     )
     print(
-        f" Auto proposals: {'ON' if AUTO_SCAN else 'OFF'} | Send /check in Telegram to check any coin"
+        f" Automatic scanning: {'ON' if AUTO_SCAN else 'OFF'} | Telegram approval required for every new buy"
     )
-    print(" Ctrl+C to stop (open orders stay active on Binance).")
+    print(" Press Ctrl+C to stop the assistant. Exchange orders remain active.")
     print("=" * 60)
 
     # ignore any old taps that piled up while the program was off
-    print("[5/5] Loading Telegram...", flush=True)
+    print("[5/5] Connecting to Telegram...", flush=True)
     offset = 0
     r = tg("getUpdates", timeout=0)
     if not r.get("ok"):
@@ -932,13 +937,13 @@ def _run_main():
     if AUTO_SCAN:
         threading.Thread(target=scanner_loop, daemon=True).start()
     print(
-        "TRBT ready | "
+        "TRBT online | "
         + (
-            "Scanner started; results appear in the log."
+            "Automatic scanning enabled; results appear in the log."
             if AUTO_SCAN
-            else "Auto scan OFF; use /check."
+            else "Automatic scanning disabled; use /check."
         )
-        + " Telegram commands enabled.",
+        + " Telegram commands available.",
         flush=True,
     )
 
@@ -972,15 +977,14 @@ def _run_main():
 def main():
     if not TOKEN or not CHAT_ID:
         raise SystemExit("Telegram configuration missing")
-    print("TRBT | The Trading Bot for Binance Spot", flush=True)
     print(BRANDING, flush=True)
-    print(f"Mode: {mode_label()}", flush=True)
-    print("[1/5] Loading scanner... completed (module ready; no scan run yet).", flush=True)
-    print("[2/5] Loading exchange...", flush=True)
+    print(f"Environment: {mode_label()}", flush=True)
+    print("[1/5] Scanner module ready; initial market scan pending.", flush=True)
+    print("[2/5] Verifying Spot exchange connection...", flush=True)
     em.initialize()
-    print("[2/5] Exchange loading completed (Spot account verified).", flush=True)
+    print("[2/5] Spot exchange connection verified.", flush=True)
     em.STOP.clear()
-    print("[3/5] Checking duplicate-instance protection...", flush=True)
+    print("[3/5] Acquiring account instance lock...", flush=True)
     lock = em.instance_lock()
     try:
         print("[3/5] Instance lock acquired.", flush=True)

@@ -367,3 +367,14 @@ No production credentials, live exchange access or real trades were used.
 
 Final local result: **277 passed, 3 native Windows skips**, three upstream warnings.
 Ruff/format, Bandit, dependency and whitespace checks pass.
+
+Professional startup wording follow-up replaces “LIVE - REAL MONEY” with “Live
+Spot” and testnet wording with “Spot Testnet.” The welcome lists environment,
+scan cadence, mandatory approval and commands; the Windows launcher and console
+use consistent wording. Existing startup assertions verify the new environment
+and approval disclosure and absence of the retired terms. All trading flags,
+limits, locks and recovery behavior remain unchanged.
+
+Full local suite: **277 passed, 3 native Windows skips**, three upstream warnings.
+Updated startup assertions also pass in the focused compact-proposal suite.
+Ruff/format, Bandit and whitespace checks pass. No live account access or trades.

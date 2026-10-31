@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
-title Binance Spot Trading Bot - LIVE
+title TRBT - Live Spot
 set "BOT_EXIT_CODE=1"
 
 rem Explorer opens this batch file in Command Prompt. Always use this checkout,
@@ -22,14 +22,15 @@ set "USE_TESTNET=false"
 set "ALLOW_LIVE_TRADING=true"
 set "AUTO_SCAN=true"
 
-echo Starting LIVE trading assistant with auto scan ON.
-echo Telegram approval is required before a new buy.
-echo Keep this window open. Use Ctrl+C to stop the assistant.
+echo Launching TRBT - Live Spot.
+echo Automatic scanning: enabled.
+echo Order approval: required in Telegram before every new buy.
+echo Leave this window open while TRBT is running. Press Ctrl+C to stop.
 echo.
 ".venv\Scripts\python.exe" -u "telegram_assistant.py"
 set "BOT_EXIT_CODE=%ERRORLEVEL%"
 echo.
-echo Assistant stopped. Exit code: %BOT_EXIT_CODE%
+echo TRBT stopped. Exit code: %BOT_EXIT_CODE%
 goto finish
 
 :missing_venv
@@ -42,7 +43,7 @@ echo ERROR: telegram_assistant.py is missing from this checkout.
 goto finish
 
 :missing_config
-echo ERROR: Local .env is missing. Configure it here before starting LIVE mode.
+echo ERROR: Local .env is missing. Configure it here before starting Live Spot mode.
 echo Never put API keys or Telegram tokens inside this batch file.
 goto finish
 
