@@ -34,7 +34,12 @@ def test_one_candidate_zero_proposals_shows_symbol_and_reason(scan, monkeypatch,
     monkeypatch.setattr(ta, "build_plan", reject)
     result = tg.scan_once()
     assert "SLPUSDT" in caplog.text and "0 proposal(s)" in caplog.text
-    assert any("SLPUSDT: blocked" in text and "ALLOW_BNB_FEES=true" in text for text in scan)
+    assert any(
+        "Ticker: SLPUSDT" in text
+        and "Current status: Blocked" in text
+        and "ALLOW_BNB_FEES=true" in text
+        for text in scan
+    )
     assert "ALLOW_BNB_FEES=true" in result[0]
     assert not sc.last_alert
 
@@ -69,7 +74,7 @@ def test_cooldown_candidate_is_named_and_explained(scan, monkeypatch):
     monkeypatch.setattr(ta, "scan_candidates", lambda: ({"FOOUSDT": sig()}, ""))
     sc.last_alert["FOOUSDT"] = time.time()
     assert "FOOUSDT: cooldown" in tg.scan_once()[0]
-    assert any("FOOUSDT: cooldown" in msg for msg in scan)
+    assert any("Ticker: FOOUSDT" in msg and "Current status: Cooldown" in msg for msg in scan)
 
 
 def test_console_only_candidate_setting_disables_telegram_summary(scan, monkeypatch, caplog):
@@ -97,7 +102,8 @@ def test_large_scan_summary_is_split_without_losing_candidates(scan, monkeypatch
     tg.scan_once()
     assert all(len(msg) <= 3500 for msg in scan)
     combined = "\n".join(scan)
-    assert all(symbol + ": blocked" in combined for symbol in candidates)
+    assert all("Ticker: " + symbol in combined for symbol in candidates)
+    assert combined.count("Current status: Blocked") == len(candidates)
 
 
 def test_send_proposal_delivery_status_is_explicit(scan, sim, monkeypatch):
@@ -119,7 +125,12 @@ def test_active_trade_block_still_displays_all_levels_without_new_approval(scan,
     for field, value in (("Entry", "100"), ("SL", "97"), ("TP1", "104.5"), ("TP2", "107.5")):
         assert f"{field}: {value}" in result
     assert "fresh executable proposal" in result
-    assert "BTC downtrend" in "\n".join(scan)
+    telegram = "\n".join(scan)
+    assert "Potential Candidate Detected" in telegram
+    assert "Reason for rejection: Open or unresolved bot trade exists" in telegram
+    assert "\nEntry: 100\nSL: 97\nTP1: 104.5\nTP2: 107.5\n" in telegram
+    assert "SCAN RESULTS" not in telegram and "Git:" not in telegram
+    assert "BTC downtrend" in telegram
     assert not tg.pending and not sim.writes and not sc.last_alert
     assert len(em.active_trades()) == 1
 
@@ -158,7 +169,8 @@ def test_show_pr_retrieves_blocked_candidate_without_order_or_approval(
     tg.handle_message(message(command))
     text = "\n".join(scan)
     assert "VIEW ONLY" in text and "UTC" in text
-    assert "FOOUSDT: blocked" in text and "Open or unresolved" in text
+    assert "Ticker: FOOUSDT" in text and "Current status: Blocked" in text
+    assert "Reason for rejection: Open or unresolved" in text
     for field in ("Entry:", "SL:", "TP1:", "TP2:"):
         assert field in text
     assert not tg.pending and not sim.writes

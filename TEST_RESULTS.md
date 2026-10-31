@@ -348,3 +348,10 @@ crash can duplicate a message, identified by the same trade reference.
 Final combined local result: **271 passed, 3 native Windows skips**, three upstream
 websockets warnings. Ruff/format, Bandit, dependency and whitespace checks pass.
 No live Binance connection, production credentials or real trades were used.
+
+Compact candidate-card follow-up: existing visibility regressions now assert the
+requested ticker/status/rejection/one-level-per-line Telegram layout, absence of
+the large Git header, preserved market warning, no actionable approval while a
+trade is active, notification preferences, chunking and SHOW PR behavior. Full
+suite remains **271 passed, 3 native Windows skips**, three upstream warnings.
+Ruff/format, Bandit and whitespace checks pass. No live account access or trades.

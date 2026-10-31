@@ -409,3 +409,11 @@ trade stays closed even if Telegram is unavailable. Delivery is at least once:
 a crash after Telegram accepts a message but before its acknowledgement is saved
 can produce a duplicate with the same trade reference. Newer execution snapshots
 supersede undelivered older ones. Reporting never retries or creates an order.
+
+Candidate Telegram alerts now use one compact card: “Potential Candidate Detected,”
+ticker, current status, rejection/cooldown reason, and Entry/SL/TP1/TP2 on separate
+lines. They retain the live/testnet label, preview-only notice and market warning,
+with `TRBT v1.0.0 | Fazil` as a short footer. The large branding/Git header and
+repeated candidate/status headings are omitted from these cards. Full identity
+remains in startup output and proposal Details. SHOW PR uses the same compact
+candidate snapshot. Console diagnostics and execution policy are unchanged.

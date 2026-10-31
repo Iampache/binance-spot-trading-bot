@@ -763,23 +763,50 @@ def handle_message(msg):
 
 
 # ---------- scanner thread ----------
+def candidate_card(symbol, sig, status, reason, note):
+    marker = "🔴" if status in ("Blocked", "Not delivered / canceled") else "🟡"
+    lines = [
+        f"Potential Candidate Detected [{mode_label()}]",
+        f"🔵 Ticker: {symbol}",
+        f"{marker} Current status: {status}",
+        f"Reason for rejection: {reason}",
+        "",
+    ]
+    try:
+        ta.require_finite_levels(sig)
+        lines += [
+            f"{label}: {sc.fmt(sig[key])}"
+            for label, key in (("Entry", "entry"), ("SL", "stop"), ("TP1", "t1"), ("TP2", "t2"))
+        ]
+    except (ValueError, KeyError, TypeError):
+        lines.append("Levels unavailable: invalid or incomplete signal.")
+    lines.append("Preview only; fresh approval required to trade.")
+    if note:
+        lines.append(note)
+    lines.append(f"TRBT v{VERSION} | Fazil")
+    return "\n".join(lines)
+
+
 def scan_once():
     cands, note = ta.scan_candidates()
     names = ", ".join(cands) or "none"
     sc.log.info("Scan candidates (%s): %s", len(cands), names)
-    results, sent = [], 0
+    results, cards, sent = [], [], 0
     for sym, sig in cands.items():
         delivered = False
+        status, reason = "Blocked", ""
         badge = "🔴 Proposal status: BLOCKED — no actionable approval"
         remaining = sc.COOLDOWN_SECONDS - (time.time() - sc.last_alert.get(sym, 0))
         if remaining > 0:
             result = f"{sym}: cooldown, {int(remaining)} seconds remaining"
+            status, reason = "Cooldown", f"Cooldown: {int(remaining)} seconds remaining"
             badge = "🟡 Proposal status: COOLDOWN — preview only"
         else:
             try:
                 plan = ta.build_plan(sig)
                 if send_proposal(sig, plan, note):
                     delivered = True
+                    status, reason = "Awaiting approval", "None — proposal sent separately"
                     badge = "🟡 Proposal status: AWAITING APPROVAL — no order placed"
                     sc.last_alert[sym] = time.time()
                     sent += 1
@@ -787,10 +814,16 @@ def scan_once():
                 else:
                     result = f"{sym}: proposal not delivered or canceled; no approval available"
                     badge = "🔴 Proposal status: NOT DELIVERED / CANCELED"
+                    status, reason = (
+                        "Not delivered / canceled",
+                        "Proposal not delivered or canceled",
+                    )
             except ValueError as error:
-                result = f"{sym}: blocked — {safety.redact(str(error))}"
+                reason = safety.redact(str(error))
+                result = f"{sym}: blocked — {reason}"
             except Exception as error:
-                result = f"{sym}: blocked — {safe(error)}"
+                reason = safe(error)
+                result = f"{sym}: blocked — {reason}"
         result = f"🔵 {result}\n{badge}"
         try:
             # Display scanner levels without bypassing execution planning or creating
@@ -805,23 +838,18 @@ def scan_once():
             )
         except (ValueError, KeyError, TypeError):
             result += "\nCandidate levels unavailable: invalid or incomplete scanner signal."
+        card = candidate_card(sym, sig, status, reason, note)
+        cards.append(card)
         if not delivered:
             with pend_lock:
-                last_preview.update(text=f"{result}\n{note}\n\n{BRANDING}", saved_at=time.time())
+                last_preview.update(text=card, saved_at=time.time())
         results.append(result)
         sc.log.info("%s", result)
     sc.log.info(
         "Scan done: %s candidate(s) [%s], %s proposal(s) sent. %s", len(cands), names, sent, note
     )
     if cands and SCAN_CANDIDATE_NOTIFICATIONS:
-        lines = [
-            BRANDING,
-            "",
-            f"SCAN RESULTS [{mode_label()}]",
-            "🔵 Candidates: " + names,
-            *results,
-            note,
-        ]
+        lines = [card + "\n" for card in cards]
         chunk = ""
         for line in lines:
             # Bound Telegram messages, retaining every candidate/reason across chunks.
