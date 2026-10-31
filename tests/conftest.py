@@ -38,6 +38,7 @@ def offline(monkeypatch, tmp_path):
     tg.checks.clear()
     tg.discovery_views.clear()
     tg.setup_views.clear()
+    tg.position_views.clear()
     tg.state.clear()
     tg.recheck_timers.clear()
     if tg.trade_lock.locked():

@@ -1,6 +1,6 @@
 # TRBT algorithmic proposal design
 
-Display version: 1.3.0. Strategy identity: `atr-structure-v2`.
+Display version: 1.4.0. Strategy identity: `atr-structure-v2`.
 Reviewed public documentation on 31 October 2026 (Asia/Dubai).
 
 This is a deterministic rules-based proposal generator, not a trained AI model,

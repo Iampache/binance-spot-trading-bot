@@ -598,13 +598,14 @@ def watch_deadline(rec):
     return deadline
 
 
-def close_watch(rec, reason):
+def close_watch(rec, reason, *, notify=True):
     if rec["orders"] or rec["oco"]:
         raise ValueError("Cannot cancel an entry watch after submission has started")
     rec["entry_watch"].update(active=False, result=reason)
     rec.update(state="closed", accounted=True, realized_events=[])
     em.save_trade(rec)
-    em.alert(f"ENTRY WATCH CLOSED: {rec['symbol']}: {reason}. No buy submitted.")
+    if notify:
+        em.alert(f"ENTRY WATCH CLOSED: {rec['symbol']}: {reason}. No buy submitted.")
     return True
 
 
@@ -612,6 +613,8 @@ def advance_watch(rec):
     """One locked step; one attempt only, with confirmed fills handled normally."""
     if rec["orders"] or rec["oco"]:
         raise ValueError("Active watch contains order intents; refusing new buy")
+    if rec.get("close_requested"):
+        return close_watch(rec, "cancelled by saved exit request")
     deadline = watch_deadline(rec)
     if em.D(time.time()) + 15 >= deadline:
         return close_watch(rec, "expired")

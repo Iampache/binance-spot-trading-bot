@@ -2,6 +2,42 @@
 
 A Python-based Binance Spot Trading Assistant with Telegram integration.
 
+## Active positions and early exit (v1.4.0)
+
+Send `/position` (or `/positions`) to see a numbered list of bot positions and
+entry watches, ten per page. Tap a pair or type its number. The details show the
+average filled entry, entry cap, current reference price, original SL/TP1/TP2,
+target execution status, remaining bot quantity and observed stop coverage.
+Opening/refreshing these views reads exchange state but never cancels or sells.
+Unavailable verification is explicitly labeled rather than presented as coverage.
+Numbers/buttons identify the original saved trade even if the active list changes.
+
+To close a filled trade before its targets/stop:
+
+1. Select the trade and tap **Exit Trade**.
+2. Review the exact pair/trade, current reference price and remaining quantity.
+3. Tap **Confirm Exit Trade**, or **Keep Position** to leave management unchanged.
+
+Confirmation requests a market close of this bot trade, not just order
+cancellation. Any pending buy is canceled, then its OCOs are released one at a
+time and the released, verified bot-owned remainder is sold. Other bot positions
+and unrelated holdings are preserved. Market prices/fees can change the result,
+and a close can require continued reconciliation; closure is not guaranteed by
+the initial acknowledgment. **TRADE CLOSED** and the reconciled net result confirm
+completion. `/position` shows pending exits; `/pnl` includes fully accounted closes.
+
+An accepted request is journaled before exchange handling starts and recovery
+continues it after restart. `/cancel` cancels unconfirmed UI selections; it cannot
+undo an accepted exit. Confirmation expires after five minutes by default; views
+expire after ten. Repeated, expired, canceled or replaced controls do not trigger
+another sale. Old controls never target a newer trade in the same pair.
+
+Unfilled watches offer **Cancel Entry Watch**, with their own confirmation and
+no sell order. If entry starts while that confirmation is open, it is rejected;
+review the now-filled position before requesting an exit. The confirmed CLI
+close remains available and now also cancels an unfilled watch without buying.
+Positions/settings/journals stay in the same account-scoped `runtime_state`.
+
 ## Account setup, daily results and shutdown (v1.3.0)
 
 Send `/setup` to view your limits and choose **Change max trades** or

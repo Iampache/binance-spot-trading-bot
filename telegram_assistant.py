@@ -44,6 +44,7 @@ import algorithmic_planner as algo
 import entry_scanner as sc
 import exit_manager as em
 import market_discovery as discovery
+import position_manager as positions
 import safety
 import shutdown_control
 import trade_assistant as ta
@@ -67,6 +68,7 @@ pending = {}  # proposal id -> dict
 checks = {}  # /check card id -> dict
 discovery_views = {}  # ephemeral read-only discovery menus/results
 setup_views = {}  # owner-only setting changes awaiting confirmation
+position_views = {}  # immutable record IDs; no number ever resolves a fresh ticker list
 state = {}  # conversation state for /check and manual entry
 recheck_timers = set()
 proposal_generation = 0
@@ -84,11 +86,14 @@ HELP = (
     "Full pairs such as ZROUSDT or ZRO/USDT also work.\n"
     "/check_ticker or /check-ticker — aliases for /check\n"
     "/status — balance, bot positions, stop coverage and entry watches\n"
+    "/position or /positions — numbered bot positions, details and confirmed exit\n"
     "/setup — change maximum active trades and per-trade investment cap\n"
     "/pnl — today's completed bot-trade profit/loss (Dubai time)\n"
     "/showpr or SHOW PR — latest saved proposal/candidate; view only\n"
     "/cancel — cancel pending proposals, forms, rechecks and untriggered watches. "
     "Does NOT close a position or cancel its protective OCOs.\n\n"
+    "Use /position → Exit Trade → Confirm Exit to close a filled trade. "
+    "/cancel cannot undo an accepted exit request.\n\n"
     "After /check:\n"
     "1 — scanner plan; 2 — recheck in 15 min; 3 — trading options\n"
     "Manual — type ENTRY STOP TP1 TP2 (explicit risk override)\n"
@@ -348,6 +353,12 @@ def expire_pending():
         edit(item, "EXPIRED. No order placed.")
     if state and now - state.get("t", now) > 600:
         state.clear()
+    for pid, view in list(position_views.items()):
+        if now >= view["expires_at"]:
+            position_views.pop(pid, None)
+            if state.get("position_view_id") == pid:
+                state.clear()
+            edit(view, "EXPIRED. Open /position again.")
     for sid, view in list(setup_views.items()):
         if now - view["created"] > CHECK_TTL:
             setup_views.pop(sid, None)
@@ -841,6 +852,9 @@ def handle_callback(cb):
     if str(sender) != str(CHAT_ID) or str(chat) != str(CHAT_ID):
         return  # ignore strangers completely
     action, _, pid = cb.get("data", "").partition(":")
+    if action.startswith("P"):
+        handle_position_callback(cb, action, pid)
+        return
     if action.startswith("S"):
         handle_setup_callback(cb, action, pid)
         return
@@ -962,11 +976,15 @@ def handle_message(msg):
         with pend_lock:
             proposal_generation += 1
             canceled_checks = (
-                list(checks.values()) + list(discovery_views.values()) + list(setup_views.values())
+                list(checks.values())
+                + list(discovery_views.values())
+                + list(setup_views.values())
+                + list(position_views.values())
             )
             checks.clear()
             discovery_views.clear()
             setup_views.clear()
+            position_views.clear()
             canceled = list(pending.values())
             pending.clear()
         for card in canceled_checks:
@@ -985,6 +1003,18 @@ def handle_message(msg):
             f"Cancelled {watches} untriggered entry watch(es), pending proposals, manual entry and scheduled rechecks. "
             "Already submitted orders and protective OCOs remain active; /status shows them."
         )
+    elif command in ("/position", "/positions"):
+        parts = text.split(None, 1)
+        if len(parts) > 1 and state.get("step") == "position_number":
+            handle_position_number(parts[1])
+        elif len(parts) > 1:
+            say("Send /position first, then choose a number from that list.")
+        else:
+            state.clear()
+            try:
+                show_position_list()
+            except Exception as error:
+                say("Positions unavailable: " + safe(error) + ". Use /status to inspect recovery.")
     elif command == "/setup":
         state.clear()
         try:
@@ -1015,6 +1045,8 @@ def handle_message(msg):
         else:
             state.update(step="ticker", t=time.time())
             say("Which coin? Send just the ticker, for example ZRO. USDT is added automatically.")
+    elif state.get("step") == "position_number" and text:
+        handle_position_number(text)
     elif state.get("step") == "setup_value" and text:
         handle_setup_value(text)
     elif state.get("step") == "ticker" and text:
@@ -1024,6 +1056,291 @@ def handle_message(msg):
         handle_algorithm_targets(text)
     elif state.get("step") == "manual" and text:
         handle_manual(text)
+
+
+# ---------- bot positions and confirmed closes ----------
+def register_position_view(text, buttons, *, kind, context, generation, **extra):
+    if generation != proposal_generation:
+        return None
+    pid = uuid.uuid4().hex
+    keyboard = [
+        [
+            {**button, "callback_data": f"{button['action']}:{pid}" + button.get("suffix", "")}
+            for button in row
+        ]
+        for row in buttons
+    ]
+    for row in keyboard:
+        for button in row:
+            button.pop("action", None)
+            button.pop("suffix", None)
+    result = say(text, reply_markup=json.dumps({"inline_keyboard": keyboard}))
+    if not result or not result.get("ok"):
+        return None
+    now = time.time()
+    item = {
+        "mid": result["result"]["message_id"],
+        "text": text,
+        "created": now,
+        "expires_at": now + (APPROVAL_TTL if kind == "confirm" else CHECK_TTL),
+        "kind": kind,
+        "context": context,
+        "generation": generation,
+        **extra,
+    }
+    with pend_lock:
+        if generation != proposal_generation:
+            edit(item, "CANCELLED. Open /position again.")
+            return None
+        position_views[pid] = item
+    return pid
+
+
+def show_position_list(*, rows=None, context=None, page=0, generation=None):
+    generation = proposal_generation if generation is None else generation
+    if generation != proposal_generation:
+        return None
+    if rows is None:
+        listing = positions.list_positions()
+        rows, context = listing["rows"], listing["context"]
+    if not rows:
+        say("No active bot positions or entry watches. Use /check COIN to review a new setup.")
+        return None
+    start, end = page * 10, min((page + 1) * 10, len(rows))
+    text = ["Bot positions — latest saved state", ""]
+    buttons = []
+    for index in range(start, end):
+        row = rows[index]
+        text.append(f"{index + 1}. {row['symbol']} — {row['state']}")
+        buttons.append(
+            [{"text": f"{index + 1}. {row['symbol']}", "action": "PS", "suffix": f":{index}"}]
+        )
+    pages = []
+    if page:
+        pages.append({"text": "Previous", "action": "PN", "suffix": f":{page - 1}"})
+    if end < len(rows):
+        pages.append({"text": "Next", "action": "PN", "suffix": f":{page + 1}"})
+    if pages:
+        buttons.append(pages)
+    buttons += [[{"text": "Refresh list", "action": "PR"}, {"text": "Cancel", "action": "PX"}]]
+    text += [
+        "",
+        f"Showing {start + 1}–{end} of {len(rows)}.",
+        "Tap a position or send its number for current details. This list contains bot trades only.",
+    ]
+    pid = register_position_view(
+        "\n".join(text), buttons, kind="list", context=context, generation=generation, rows=rows
+    )
+    if pid:
+        state.clear()
+        state.update(step="position_number", position_view_id=pid, t=time.time())
+    return pid
+
+
+def show_position_details(trade_id, context, *, generation):
+    if generation != proposal_generation:
+        return None
+    view = positions.snapshot(trade_id, context)
+    buttons = []
+    if view["action"]:
+        buttons.append(
+            [
+                {
+                    "text": "Cancel Entry Watch"
+                    if view["action"] == "cancel_watch"
+                    else "Exit Trade",
+                    "action": "PE",
+                }
+            ]
+        )
+    buttons += [
+        [{"text": "Refresh", "action": "PR"}, {"text": "Back to positions", "action": "PB"}],
+        [{"text": "Cancel", "action": "PX"}],
+    ]
+    return register_position_view(
+        positions.details_text(view),
+        buttons,
+        kind="detail",
+        context=context,
+        generation=generation,
+        trade_id=trade_id,
+        symbol=view["record"]["symbol"],
+    )
+
+
+def consume_position_view(pid, item, status):
+    with pend_lock:
+        if position_views.pop(pid, None) is not item:
+            return False
+    if state.get("position_view_id") == pid:
+        state.clear()
+    edit(item, status)
+    return True
+
+
+def position_view_valid(item):
+    return item["generation"] == proposal_generation and time.time() < item["expires_at"]
+
+
+def handle_position_number(text):
+    pid = state.get("position_view_id")
+    item = position_views.get(pid)
+    if not item or item["kind"] != "list" or not position_view_valid(item):
+        state.clear()
+        if item:
+            consume_position_view(pid, item, "EXPIRED. Open /position again.")
+        say("Position list expired or canceled. Send /position again.")
+        return
+    if not text.isdecimal() or not 1 <= int(text) <= len(item["rows"]):
+        say(f"Choose a number from 1 to {len(item['rows'])}, or /cancel to stop.")
+        return
+    row = item["rows"][int(text) - 1]
+    if consume_position_view(pid, item, "Opening the selected trade below."):
+        try:
+            show_position_details(row["id"], item["context"], generation=item["generation"])
+        except Exception as error:
+            say("Position details unavailable: " + safe(error) + ". Open /position again.")
+
+
+def run_position_exit(rec):
+    # Uses the existing locked, idempotent cancel/reconcile/sell lifecycle.
+    # The close intent was already saved before this worker was launched.
+    em.monitor_trade(rec)
+
+
+def handle_position_callback(cb, action, payload):
+    pid, _, selection = payload.partition(":")
+    item = position_views.get(pid)
+
+    def ack(text):
+        tg("answerCallbackQuery", callback_query_id=cb["id"], text=text)
+
+    if not item:
+        clear_callback_keyboard(cb)
+        ack("Expired or canceled. Open /position again.")
+        return
+    if cb.get("message", {}).get("message_id") != item["mid"]:
+        clear_callback_keyboard(cb)
+        ack("Use the latest position message.")
+        return
+    if not position_view_valid(item):
+        consume_position_view(pid, item, "EXPIRED. Open /position again.")
+        ack("Expired.")
+        return
+    allowed = {
+        "list": {"PS", "PN", "PR", "PX"},
+        "detail": {"PE", "PR", "PB", "PX"},
+        "confirm": {"PF", "PX"},
+    }
+    if action not in allowed[item["kind"]]:
+        ack("Use the available position buttons.")
+        return
+    if action in ("PS", "PN"):
+        maximum = len(item["rows"]) if action == "PS" else (len(item["rows"]) + 9) // 10
+        if not selection.isdecimal() or not 0 <= int(selection) < maximum:
+            ack("Invalid position selection.")
+            return
+    if action == "PX":
+        ack("Exit not requested." if item["kind"] == "confirm" else "Position menu closed.")
+        consume_position_view(pid, item, "CANCELLED. No exit requested by this selection.")
+        return
+    if action == "PF":
+        # Claim before I/O; a second tap cannot start another request.
+        with pend_lock:
+            if position_views.pop(pid, None) is not item:
+                ack("This confirmation was already used.")
+                return
+        ack("Saving your exit request...")
+        try:
+            # Serialize cancellation with durable acceptance. No network writes
+            # run under this lock: confirmed exchange handling starts afterward.
+            with em.operation_lock(), pend_lock:
+                if item["generation"] != proposal_generation:
+                    raise ValueError("Exit selection canceled. Open /position again")
+                rec = em.request_bot_trade_close(
+                    item["symbol"],
+                    "CLOSE_" + item["symbol"],
+                    trade_id=item["trade_id"],
+                    context=item["context"],
+                    action=item["exit_action"],
+                    expires_at=item["expires_at"],
+                    actor=CHAT_ID,
+                    source="telegram",
+                )
+        except ValueError as error:
+            edit(item, "Exit request not confirmed. " + safety.redact(str(error)))
+            return
+        except Exception as error:
+            edit(
+                item,
+                "Exit request not confirmed. Refresh /position before retrying. " + safe(error),
+            )
+            return
+        if rec["state"] == "closed":
+            edit(
+                item,
+                "Entry watch closed. No sell order was placed by this confirmation."
+                if item["exit_action"] == "cancel_watch" and not rec["orders"]
+                else "This trade is already closed. No additional exit requested; see /pnl for completed results.",
+            )
+            return
+        try:
+            start_managed_worker(lambda: run_position_exit(rec))
+        except Exception as error:
+            edit(
+                item,
+                "Exit request is saved. Worker could not start; existing monitoring/restart recovery will continue it. "
+                + safe(error),
+            )
+            return
+        edit(
+            item,
+            "EXIT REQUEST SAVED. Cancel/market-sale reconciliation was requested for this trade only. "
+            "This is not a confirmed fill. Watch for TRADE CLOSED and the final net result; /position shows progress.",
+        )
+        return
+    ack("Loading the latest position details...")
+    if not consume_position_view(pid, item, "Selection opened below."):
+        return
+    try:
+        if action == "PS":
+            show_position_details(
+                item["rows"][int(selection)]["id"], item["context"], generation=item["generation"]
+            )
+        elif action == "PN":
+            show_position_list(
+                rows=item["rows"],
+                context=item["context"],
+                page=int(selection),
+                generation=item["generation"],
+            )
+        elif action == "PB" or (action == "PR" and item["kind"] == "list"):
+            show_position_list(generation=item["generation"])
+        elif action == "PR":
+            show_position_details(item["trade_id"], item["context"], generation=item["generation"])
+        elif action == "PE":
+            view = positions.snapshot(item["trade_id"], item["context"])
+            if not view["action"]:
+                show_position_details(
+                    item["trade_id"], item["context"], generation=item["generation"]
+                )
+                return
+            label = (
+                "Confirm Cancel Watch" if view["action"] == "cancel_watch" else "Confirm Exit Trade"
+            )
+            keep = "Keep Entry Watch" if view["action"] == "cancel_watch" else "Keep Position"
+            register_position_view(
+                positions.confirmation_text(view) + f"\n\nExpires in {APPROVAL_TTL // 60} min.",
+                [[{"text": label, "action": "PF"}], [{"text": keep, "action": "PX"}]],
+                kind="confirm",
+                context=item["context"],
+                generation=item["generation"],
+                trade_id=item["trade_id"],
+                symbol=view["record"]["symbol"],
+                exit_action=view["action"],
+            )
+    except Exception as error:
+        say("Position action unavailable: " + safe(error) + ". Open /position again.")
 
 
 # ---------- owner setup ----------
@@ -1111,11 +1428,13 @@ def invalidate_for_settings_change():
             *checks.values(),
             *discovery_views.values(),
             *setup_views.values(),
+            *position_views.values(),
         ]
         pending.clear()
         checks.clear()
         discovery_views.clear()
         setup_views.clear()
+        position_views.clear()
         state.clear()
     for item in items:
         edit(item, "SETTINGS CHANGED. Request a fresh selection/proposal before approval.")
@@ -1479,6 +1798,7 @@ def startup_text():
         "/setup — change trading limits\n"
         "/pnl — today's completed trade results\n"
         "/status — view positions and protection\n"
+        "/position — view a bot trade or request an exit\n"
         "/help — view all commands"
     )
 

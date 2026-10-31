@@ -7,6 +7,41 @@ agent, plus independent automated static analysis using Bandit. It is **not an
 independent human or third-party audit**, and is not certification for live trading.
 No Binance account, production credential or Telegram integration was accessed.
 
+## Confirmed Telegram position exits (v1.4.0)
+
+Position lists are local snapshots with immutable record IDs. Details refresh
+only read APIs under the account operation lock; failed verification is labeled
+and does not claim known quantity/coverage. No browsing, refresh, Exit Trade
+preview or Keep action calls an exchange cancellation/sale. List numbering is
+frozen and paginated, so another closing position cannot change the selected
+record. Standard fixed-domain Spot text links and credential-safe errors apply.
+
+Exit confirmation requires the configured sender/chat, exact message, allowed
+view stage, cancellation generation and deadline. It is claimed once before I/O,
+then generation/deadline/account/trade/action are rechecked at durable acceptance.
+The account/selection locks serialize this point with `/cancel`. A close request
+and local actor/time/source audit are saved before starting exchange handling;
+worker failure or restart cannot lose the intent. Missing/mismatched/overlapping
+records fail closed. An old closed record never resolves to a new same-pair
+trade. Closed/closing requests are idempotent, not new orders.
+
+Actual handling reuses the existing ownership-checked lifecycle: reconcile or
+cancel a pending buy, release one verified OCO, sell only its confirmed unprotected
+bot quantity above the nonbot balance floor, then handle the next OCO. Other
+pairs remain protected. Unknown accepted sales reconcile their saved client IDs;
+they are never blindly resubmitted. Stop/TP races can reduce the sale quantity.
+Acknowledgment is explicitly not a fill; only verified closure/accounting creates
+the final trade result. Minimums, missing evidence, fees, gaps and outages can
+delay or prevent complete exit and remain visible as unresolved state.
+
+Cancel Watch is a separate action. Its final check rejects an entry that has
+started; it cannot silently become authorization to sell a now-filled trade.
+CLI close and legacy close-requested watch recovery now disarm an unfilled watch
+instead of advancing it into a buy. `/cancel` invalidates unaccepted exit controls
+but cannot revoke a durable, accepted close. No default trading limit, strategy
+filter or buy-approval policy is relaxed by the new UI. Tests are offline only;
+there is no live trading validation or independent audit of this change.
+
 ## Configurable limits and parallel ownership (v1.3.0)
 
 The owner requested editable trade count/investment caps and concurrent pairs.

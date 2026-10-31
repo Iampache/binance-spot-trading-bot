@@ -1495,17 +1495,76 @@ def recover_trades():
     return records
 
 
-def close_bot_trade(symbol, confirmation):
+def request_bot_trade_close(
+    symbol,
+    confirmation,
+    *,
+    trade_id=None,
+    action=None,
+    expires_at=None,
+    context=None,
+    actor="cli",
+    source="cli",
+):
+    """Persist an exact-trade close request before any exchange mutation/worker.
+
+    Telegram supplies immutable trade/context identity and an expiring action;
+    the CLI retains its exact symbol confirmation and resolves it under the lock.
+    """
     require_trade_permission()
     if confirmation != "CLOSE_" + symbol:
         raise ValueError("Exact CLOSE_symbol confirmation required")
     with operation_lock():
-        matches = [r for r in active_trades() if r["symbol"] == symbol]
+        if context is not None and context != CONTEXT:
+            raise ex.OwnershipError("Exit confirmation account/environment changed")
+        if expires_at is not None and (STOP.is_set() or D(time.time()) >= D(expires_at)):
+            raise ValueError(
+                "Exit confirmation expired or shutdown requested; review /position again"
+            )
+        records = load_trades()
+        matches = (
+            [r for r in records if r["id"] == trade_id]
+            if trade_id
+            else [r for r in records if r["symbol"] == symbol and r["state"] != "closed"]
+        )
         if len(matches) != 1:
             raise ex.OwnershipError("Cannot isolate one bot trade")
         rec = matches[0]
+        if rec["symbol"] != symbol:
+            raise ex.OwnershipError("Exit confirmation trade/pair mismatch")
+        if rec["state"] == "closed":
+            return rec  # Never substitute a new active trade with the same ticker.
+        if sum(r["symbol"] == symbol and r["state"] != "closed" for r in records) != 1:
+            raise ex.OwnershipError("Overlapping active pair records; cannot isolate the exit")
+        from trade_assistant import close_watch, empty_watch
+
+        watch = empty_watch(rec, rec["id"])
+        if action not in (None, "exit", "cancel_watch"):
+            raise ValueError("Unsupported position exit action")
+        if action == "cancel_watch" and not watch:
+            raise ValueError("Entry state changed. Review /position before requesting an exit")
+        if action == "exit" and watch:
+            raise ValueError("This entry is still a watch. Review /position and cancel the watch")
+        if rec.get("close_requested"):
+            return rec
+        rec["close_request"] = {
+            "source": str(source),
+            "actor": str(actor),
+            "requested_utc": datetime.now(timezone.utc).isoformat(),
+            "action": "cancel_watch" if watch else "exit",
+        }
+        if watch:
+            close_watch(rec, "cancelled by position exit request", notify=source != "telegram")
+            return rec
         rec.update(close_requested=True, state="closing")
         save_trade(rec)
+        return rec
+
+
+def close_bot_trade(symbol, confirmation, *, trade_id=None):
+    rec = request_bot_trade_close(symbol, confirmation, trade_id=trade_id)
+    if rec["state"] == "closed":
+        return True
     return reconcile_trade(rec)
 
 

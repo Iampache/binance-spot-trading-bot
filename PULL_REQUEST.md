@@ -1,4 +1,4 @@
-# Harden Spot recovery and add configurable approved Telegram trading
+# Harden Spot recovery and add configurable trading with confirmed position exits
 
 Interrupted buys, uncertain responses and partial OCO placement could lose track
 of acquired coins. This branch journals order identities before requests,
@@ -22,6 +22,18 @@ reserved against the normal daily budget. Current order/list usage counts toward
 exchange capacity. New submissions remain serialized, with separate position
 monitoring; recovery/close operations retain account locking and per-pair ownership.
 
+/position and /positions now list bot trades with frozen numbers/IDs and refreshed
+entry, reference price, original exits, target status, remaining quantity and
+coverage. Browsing is read-only. Exit Trade requires a second, expiring confirmation
+bound to the exact record/account and message. Acceptance is journaled before
+the existing per-OCO cancel/market-close recovery path starts. Other holdings
+remain isolated; unknown sales reconcile without duplicate submission. Old
+same-pair controls cannot target a replacement trade. An unfilled watch has a
+separate cancellation; entry-state changes require a fresh review. CLI/legacy
+watch close requests now cancel without advancing into a buy. Exit acceptance
+is distinct from verified closure and final net P&L. /cancel only revokes exits
+before durable acceptance; accepted exits continue through restart recovery.
+
 /pnl reports fee-adjusted results for fully completed bot trades on the final
 sell-fill day in Dubai time, including each trade's full result. Open/partial,
 unfilled and pending-accounting records are excluded; invalid accounting shows
@@ -42,12 +54,14 @@ cannot bypass configured caps, exchange validity, ownership, OCO protection or
 final approval. Every new buy still requires approval. Settings are ceilings,
 not guaranteed allocation; aggregate normal risk/funds can prevent filling slots.
 
-Validation: **479 passed, 3 native Windows skips**, three upstream deprecation
+Validation: **520 passed, 3 native Windows skips**, three upstream deprecation
 warnings. Ruff lint/format, Bandit, pip dependencies and whitespace checks pass.
 Tests use synthetic transport data with sockets/HTTP forbidden. New tests cover
 atomic settings/audit, stale approvals, concurrent pair admission, separate
 protection/recovery/closing, cash/risk reservations, exchange capacity, completed
-P&L day boundaries and shutdown ordering. Windows console callback logic is mocked
+P&L day boundaries, shutdown ordering, exact-record exit authorization, stale
+controls, partial/timeout/stop races, watch changes and close restart recovery.
+Windows console callback logic is mocked
 locally; actual Windows console timing remains a native verification step.
 
 CHANGELOG.md now records versions alongside Git history; private account settings

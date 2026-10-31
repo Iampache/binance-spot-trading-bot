@@ -1,6 +1,6 @@
 # Offline validation results
 
-Latest v1.3.0 result: **479 passed, 3 native Windows skips**, three upstream
+Latest v1.4.0 result: **520 passed, 3 native Windows skips**, three upstream
 deprecation warnings. Ruff lint/format, Bandit, dependency and whitespace checks
 pass. The sections below retain earlier run history; the latest regression
 details are recorded at the end.
@@ -586,3 +586,29 @@ credentials, live Binance, Telegram service or real trades were used. Actual
 Windows console Ctrl+C timing remains for native verification; mocked callback
 tests do not claim to measure it. The new parallel-capability paths have not had
 live matching-engine or strategy profitability validation.
+
+## Bot position details and confirmed early exit (v1.4.0)
+
+Forty-one additional cases cover `/position` aliases, read-only list/details and
+current entry/levels/target status, inline or frozen-number selection, changed
+lists, pagination, invalid input, actual close/result delivery, repeated taps,
+Keep/global cancel/expiry and sender/chat/message authorization. Other cases
+verify wrong-stage confirmations, preservation of other pairs/nonbot holdings,
+stale same-pair trade identities, worker-start failure with restart recovery,
+accepted exits surviving `/cancel`, separate watch cancellation, watch-to-filled
+races, TP1 remaining-only sales, unavailable verification, canceled generations,
+cancellation during callback acknowledgment and accurate already-closed messaging.
+
+Engine cases verify durable intent before any exchange write, context/action/
+expiry/shutdown checks, journal-write failure, overlapping ownership rejection,
+accepted sell timeout reconciliation without duplicate sales, a stop fill racing
+with OCO cancellation, and pending partial-buy cancellation/owned-quantity exit.
+CLI cancellation and recovery of an already-close-requested watch cannot buy.
+Existing lifecycle, ownership, fee, recovery and multiple-pair regressions pass.
+
+Full local suite: **520 passed, 3 native Windows skips**, three upstream warnings.
+Ruff lint/format, Bandit, dependency and whitespace checks pass. All exchange and
+Telegram behavior above refers to synthetic transport/UI simulations with
+sockets and HTTP forbidden. No live Binance, Telegram service, production
+credentials or real trades were used. No profitability or live matching-engine
+validation is claimed; ambiguous/canceled/partial exits still require recovery.

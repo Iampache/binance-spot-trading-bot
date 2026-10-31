@@ -3,6 +3,22 @@
 Release notes describe code changes. Git commits provide the exact history.
 Account settings, keys and trade journals remain local and are ignored by Git.
 
+## 1.4.0 — 2026-10-31
+
+- Add `/position` / `/positions`: numbered bot positions with pagination,
+  refreshed details, average entry, original SL/TP1/TP2, target status, remaining
+  quantity, reference price and observed stop coverage.
+- Add Exit Trade → Confirm Exit Trade / Keep Position. Persist exact trade and
+  account identity before reusing the existing per-OCO cancel/market-close
+  recovery lifecycle. Confirmed exits survive restart and target bot inventory only.
+- Bind expiring, single-use controls to their message and immutable trade IDs;
+  stale buttons cannot close a new position with the same ticker. Cancel before
+  acceptance leaves management in place; accepted exits continue independently.
+- Separate Cancel Entry Watch from filled-trade exits. Reject a stale watch
+  cancellation after entry starts. Fix CLI/saved-close recovery on unfilled
+  watches so a close request can never advance them into a buy.
+- Report exit acceptance separately from verified final closure and net P&L.
+
 ## 1.3.0 — 2026-10-31
 
 - Add owner-only `/setup`: review and confirm maximum concurrent trades and
