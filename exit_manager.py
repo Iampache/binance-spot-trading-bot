@@ -34,6 +34,7 @@ POLL_SECONDS = 5
 client = None
 STOP = threading.Event()
 MUTEX = threading.RLock()
+NOTICE_LOCK = threading.Lock()
 LOCK_STATE = threading.local()
 WINDOWS = sys.platform == "win32"
 JOURNAL_REPLACE_ATTEMPTS = 8
@@ -122,13 +123,16 @@ def alert(message):
     token, chat = os.getenv("TELEGRAM_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
     if token and chat:
         try:
-            requests.post(
+            response = requests.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
                 data={"chat_id": chat, "text": message},
                 timeout=12,
-            ).raise_for_status()
+            )
+            response.raise_for_status()
+            return response.json().get("ok") is True
         except Exception as error:
             log.error("%s", safety.safe_error(error))
+    return False
 
 
 def _atomic_write(path, item):
@@ -984,6 +988,8 @@ def finish_if_flat(rec, f):
             "Actual BNB commissions valued at preceding BNBUSDT trade reference (within 1 second)"
         )
     rec.update(state="closed", accounted=True, residual_qty="0")
+    if rec["realized_events"]:
+        rec["result_notice_due"] = True
     save_trade(rec)
     return True
 
@@ -1039,6 +1045,17 @@ def cancel_protection(rec, item):
 
 
 def reconcile_trade(rec):
+    finished = _reconcile_trade(rec)
+    try:
+        if not getattr(LOCK_STATE, "active", False):
+            notify_trade_result(rec)
+    except Exception as error:
+        # Notification failures must never undo closure or block safety recovery.
+        log.error("Result notification pending: %s", safety.safe_error(error))
+    return finished
+
+
+def _reconcile_trade(rec):
     """One idempotent recovery step; never creates a buy or duplicates an exit."""
     with operation_lock():
         latest = next(r for r in load_trades() if r["id"] == rec["id"])
@@ -1098,6 +1115,115 @@ def reconcile_trade(rec):
         rec["state"] = "protected" if coverage(rec) >= inventory(rec) else "needs_attention"
         save_trade(rec)
         return False
+
+
+def trade_result_text(rec):
+    sells = list(executions(rec, "SELL"))
+    if not sells:
+        return None
+    left = inventory(rec)
+    final = rec["state"] == "closed" and rec.get("accounted") and left == 0
+    title = "TRADE CLOSED" if final else "PARTIAL EXIT — position still open"
+    purposes = {
+        o["purpose"] for o in rec["orders"] if o["side"] == "SELL" and D(o["executedQty"]) > 0
+    }
+    outcome = ", ".join(
+        {"target": "Take profit", "stop": "Stop loss", "emergency": "Recovery/close"}.get(p, p)
+        for p in sorted(purposes)
+    )
+    lines = [
+        f"{title} [{'TESTNET' if rec['context']['environment'] == 'testnet' else 'LIVE - REAL MONEY'}]",
+        f"Ticker: {rec['symbol']} | Trade: {rec['id'][:8]}",
+        f"Exit: {outcome}",
+    ]
+    try:
+        pnl = sum((D(e["pnl"]) for e in realized_events(rec)), D(0))
+        cost = sum(
+            (
+                D(t["quoteQty"]) + fee_in_quote(t, rec["symbol"][:-4])
+                for t in executions(rec, "BUY")
+            ),
+            D(0),
+        )
+        if cost <= 0:
+            raise ValueError("Missing verified entry cost")
+        lines.append(
+            f"Net {'result' if final else 'realized so far'}: {pnl:+.4f} USDT ({pnl / cost * 100:+.2f}% of entry cost)"
+        )
+        lines.append(
+            "After recorded commissions."
+            + (
+                " BNB fees use fill-time USDT reference values."
+                if rec.get("pnl_valuation")
+                or any(t["commissionAsset"] == "BNB" for t in sells + list(executions(rec, "BUY")))
+                else ""
+            )
+        )
+    except (ValueError, ex.Uncertain):
+        if final:
+            raise
+        lines.append("Net result pending verified fee valuation; no estimated profit reported.")
+    lines.append(f"Remaining bot quantity: {fmt(left)}")
+    if not final:
+        lines.append("Not a final result. Use /status for stop coverage.")
+    return "\n".join(lines)
+
+
+def notify_trade_result(rec):
+    """Durable, at-least-once result delivery, isolated from order recovery."""
+    if getattr(LOCK_STATE, "active", False):
+        return  # Never invert the account-lock / notification-lock acquisition order.
+    with NOTICE_LOCK:
+        with operation_lock():
+            latest = next(r for r in load_trades() if r["id"] == rec["id"])
+            text = trade_result_text(latest)
+            if text is None:
+                return
+            key = (
+                "final"
+                if latest["state"] == "closed"
+                else "fills:" + ",".join(str(t["id"]) for t in executions(latest, "SELL"))
+            )
+            notices = latest.setdefault("result_notices", {})
+            if key not in notices:
+                # Only the newest execution snapshot should remain pending.
+                for notice in notices.values():
+                    notice["superseded"] = True
+                notices[key] = {"text": text, "sent": False}
+                save_trade(latest)
+            notice = notices[key]
+            if notice.get("sent"):
+                return
+            message = notice["text"]
+        if alert(message) is True:
+            with operation_lock():
+                latest = next(r for r in load_trades() if r["id"] == rec["id"])
+                latest["result_notices"][key]["sent"] = True
+                if key == "final":
+                    latest["result_notice_due"] = False
+                save_trade(latest)
+
+
+def retry_result_notices():
+    # Read journal evidence only: this must never submit or cancel exchange orders.
+    for rec in load_trades():
+        if rec.get("result_notice_due") or any(
+            not n.get("sent") and not n.get("superseded")
+            for n in rec.get("result_notices", {}).values()
+        ):
+            try:
+                notify_trade_result(rec)
+            except Exception as error:
+                log.error("Result notification pending: %s", safety.safe_error(error))
+
+
+def result_notice_loop():
+    while not STOP.is_set():
+        try:
+            retry_result_notices()
+        except Exception as error:
+            log.error("Result notification retry pending: %s", safety.safe_error(error))
+        STOP.wait(30)
 
 
 def mark_attention(rec):

@@ -391,3 +391,21 @@ full-position stop scenario; TP1 followed by a stop has a different outcome.
 coin arguments and `/check_ticker` / `/check-ticker` aliases), `/status`, `/showpr`
 / `SHOW PR`, `/cancel`, `/help` and `/start`. They also explain proposal buttons
 and manual-entry modes. `/cancel` does not close active positions or cancel OCOs.
+
+## Exit results in Telegram
+
+Verified sells produce a short result message. A partial exit reports realized
+profit/loss so far and remaining bot quantity; **TRADE CLOSED** is sent only after
+all bot inventory is zero, all orders terminal, and execution/commission accounting
+is verified. Net P&L is shown in USDT and as a percentage of **actual total entry
+cost including entry fees**, not account balance or the proposal's estimate.
+Targets, stops and emergency closes use actual fills. Partial BNB results can stay
+pending valuation; final BNB results identify the existing fill-time USDT reference
+method, not an exact Binance internal conversion.
+
+Notifications are saved before delivery, with failed Telegram deliveries retried
+about every 30 seconds while the assistant runs and after restart. A completed
+trade stays closed even if Telegram is unavailable. Delivery is at least once:
+a crash after Telegram accepts a message but before its acknowledgement is saved
+can produce a duplicate with the same trade reference. Newer execution snapshots
+supersede undelivered older ones. Reporting never retries or creates an order.

@@ -333,3 +333,18 @@ Full local result: **260 passed, 3 native Windows skips**, three upstream warnin
 Ruff/format, Bandit, dependency and whitespace checks pass. No live accounts or
 real trades were used. The new profit display is a conservative forecast, not
 verified realized P&L; that accounting remains exchange-execution based.
+
+## Verified exit-result reporting
+
+Eleven additional offline cases cover target/stop net results against simulated
+actual USDT movements, percentage denominator based on actual entry cost, partial
+then final exits, mixed target/stop outcomes, zero fills, failed delivery/restart
+retry, crash after closure before delivery, Telegram failure preserving closure,
+missing BNB references withholding final P&L, BNB reference labels and lock-order
+safety. A notification worker handles pending closed journals without resubmitting
+exchange requests. Result messages are at least once; a delivery/acknowledgement
+crash can duplicate a message, identified by the same trade reference.
+
+Final combined local result: **271 passed, 3 native Windows skips**, three upstream
+websockets warnings. Ruff/format, Bandit, dependency and whitespace checks pass.
+No live Binance connection, production credentials or real trades were used.

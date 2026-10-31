@@ -60,3 +60,10 @@ button. Live mode, manual risk exceptions and hard limits stay visible. /help an
 /start document all supported commands and button flows, including the fact that
 /cancel does not close active positions. Validation: 260 offline passes, 3 native
 Windows skips. Fee-reserved estimates do not promise live profit or stop losses.
+
+Verified exit notifications now distinguish partial exits from fully reconciled
+trade closure, with net USDT and percent of actual entry cost after commissions.
+A persistent notification outbox retries failed Telegram delivery, including after
+restart, independently of exchange execution. BNB reference valuation is explicit;
+missing evidence does not produce a fabricated final result. Delivery is at least
+once, so an acceptance/acknowledgement crash can duplicate the same trade reference.

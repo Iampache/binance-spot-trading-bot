@@ -896,6 +896,7 @@ def _run_main():
         offset = r["result"][-1]["update_id"] + 1
 
     print("[5/5] Telegram connection verified.", flush=True)
+    threading.Thread(target=em.result_notice_loop, daemon=True).start()
     say(
         f"Assistant started [{mode_label()}]. "
         f"{'Scanning every 15 min. ' if AUTO_SCAN else ''}Send /check to check a coin, /help for commands."
