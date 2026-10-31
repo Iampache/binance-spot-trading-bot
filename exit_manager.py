@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 import exchange as ex
 import safety
+import trading_settings as settings
 from file_locking import ProcessLock
 from telegram_formatting import ticker_link_options
 
@@ -379,7 +380,7 @@ def validate_qty(qty, f, reference_price, *, market=False, entry=False):
     margin = D("1.05") if entry else D("1")
     if not f["min_notional"] * margin <= qty * price <= f["max_notional"]:
         raise ValueError(
-            "12 USDT cap cannot satisfy required order minimums/fee buffer; skip trade"
+            "Configured size cannot satisfy required order minimums/fee buffer; skip trade"
         )
 
 
@@ -454,7 +455,7 @@ def validate_price(price, f, side):
                     raise ValueError("Price violates dynamic percent-price filter")
 
 
-def preflight(plan, f):
+def preflight(plan, f, *, open_orders=None):
     f["symbol"] = plan["symbol"]
     for key in ("stop", "t1", "t2"):
         validate_price(plan[key], f, "SELL")
@@ -471,8 +472,23 @@ def preflight(plan, f):
     for part, target in ((half, plan["t1"]), (net - half, plan["t2"])):
         validate_qty(part, f, plan["stop"], entry=entry_buffer)
         validate_qty(part, f, target, entry=entry_buffer)
-    if qty * price * (1 + D(plan["fee_rate"])) > safety.MAX_POSITION_USDT:
-        raise ValueError("Position including commission exceeds 12 USDT")
+    cap = D(settings.read()["max_position_usdt"])
+    if qty * price * (1 + D(plan["fee_rate"])) > cap:
+        raise ValueError(f"Position including commission exceeds configured {cap} USDT cap")
+    opened = get_client().get_open_orders() if open_orders is None else open_orders
+
+    def usage(rows):
+        return (
+            len(rows),
+            sum(
+                row["type"] in {"STOP_LOSS", "STOP_LOSS_LIMIT", "TAKE_PROFIT", "TAKE_PROFIT_LIMIT"}
+                for row in rows
+            ),
+            len({row["orderListId"] for row in rows if row.get("orderListId", -1) >= 0}),
+        )
+
+    symbol_usage = usage([row for row in opened if row["symbol"] == plan["symbol"]])
+    exchange_usage = usage(opened)
     # Check symbol order/list capacity before buying; unknown exotic constraints fail closed.
     supported = {
         "PRICE_FILTER",
@@ -493,13 +509,15 @@ def preflight(plan, f):
     }
     if set(f["raw"]) - supported:
         raise ValueError("Unsupported exchange filter; skip trade")
-    for name, field, needed in [
-        ("MAX_NUM_ORDERS", "maxNumOrders", 4),
-        ("MAX_NUM_ALGO_ORDERS", "maxNumAlgoOrders", 2),
-        ("MAX_NUM_ORDER_LISTS", "maxNumOrderLists", 2),
-    ]:
+    for index, (name, field, needed) in enumerate(
+        [
+            ("MAX_NUM_ORDERS", "maxNumOrders", 4),
+            ("MAX_NUM_ALGO_ORDERS", "maxNumAlgoOrders", 2),
+            ("MAX_NUM_ORDER_LISTS", "maxNumOrderLists", 2),
+        ]
+    ):
         rule = f["raw"].get(name)
-        if rule and int(rule[field]) and int(rule[field]) < needed:
+        if rule and int(rule[field]) and int(rule[field]) < needed + symbol_usage[index]:
             raise ValueError("Insufficient symbol capacity for two protective OCOs")
     exchange_info = get_client().get_exchange_info()
     for rule in exchange_info.get("exchangeFilters", []):
@@ -511,7 +529,8 @@ def preflight(plan, f):
         if rule["filterType"] not in limits:
             raise ValueError("Unsupported exchange-wide filter")
         field, needed = limits[rule["filterType"]]
-        if int(rule[field]) and int(rule[field]) < needed:
+        index = list(limits).index(rule["filterType"])
+        if int(rule[field]) and int(rule[field]) < needed + exchange_usage[index]:
             raise ValueError("Insufficient exchange-wide protective order capacity")
     limit = f["raw"].get("MAX_POSITION")
     if limit and D(plan["baseline_base"]) + qty > D(limit["maxPosition"]):
@@ -1079,7 +1098,14 @@ def todays_loss(*, watch_id=None):
             if empty_watch(rec, watch_id):
                 continue
         if rec["state"] != "closed":
-            raise ValueError("Open or unresolved bot trade exists")
+            from trade_assistant import empty_watch
+
+            if empty_watch(rec, rec["id"]):
+                continue
+            if rec["state"] != "protected" or not 0 < inventory(rec) <= coverage(rec):
+                raise ValueError("Open trade requires protection/accounting reconciliation")
+            if not any(executions(rec, "SELL")):
+                continue
         # Recompute from exchange evidence, never trust missing/estimated P&L.
         for event in realized_events(rec):
             if datetime.fromtimestamp(int(event["time"]) / 1000, timezone.utc).date() == today:

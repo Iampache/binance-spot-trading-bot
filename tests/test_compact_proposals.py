@@ -100,6 +100,8 @@ def test_help_lists_supported_commands_and_cancel_boundary(sim, monkeypatch, com
         "/check_ticker",
         "/check-ticker",
         "/status",
+        "/setup",
+        "/pnl",
         "/showpr",
         "SHOW PR",
         "/cancel",
@@ -107,7 +109,7 @@ def test_help_lists_supported_commands_and_cancel_boundary(sim, monkeypatch, com
         assert name in text
     assert "Does NOT close a position" in text and "Details" in text
     assert "STOP TP1 TP2" in text and "ENTRY STOP TP1 TP2" in text
-    assert "one active/unresolved trade maximum" in text
+    assert "configured investment/active-trade limits apply (/setup)" in text
     assert not sim.writes
 
 

@@ -2,6 +2,58 @@
 
 A Python-based Binance Spot Trading Assistant with Telegram integration.
 
+## Account setup, daily results and shutdown (v1.3.0)
+
+Send `/setup` to view your limits and choose **Change max trades** or
+**Change max investment**. Enter the new value, review the resulting limits and
+tap **Confirm change**. Defaults remain **1 active trade / 12 USDT per trade**.
+The trade count accepts whole numbers 1–100; the investment cap accepts a positive
+USDT amount with up to two decimals and includes reserved buy commission.
+These are ceilings, not guaranteed allocation: available funds, normal 1% risk
+sizing, the 3 USDT daily budget and exchange minimums can reduce size or block entry.
+
+Limits apply immediately and survive restart in
+`runtime_state/<environment>/<account_uid>/settings.json`. The same atomic file
+records revision, old/new values, UTC timestamp and Telegram actor for each
+confirmed change. It is ignored by Git. `.env` remains for credentials and runtime
+flags; adding old-looking limit variables there will not override `/setup`.
+Missing settings use defaults; corrupt settings block new entries rather than
+silently resetting. Preserve the entire `runtime_state` folder across upgrades.
+
+Different USDT pairs can run concurrently within the selected count. Duplicate
+pairs and uncertain/unprotected records still block entries. Other positions'
+open OCO orders must match verified bot ownership; external or changed orders
+block. Watch costs reserve free USDT; each active position/watch reserves its full
+planned stop risk against the normal daily budget. Recorded UTC fill-day results
+still determine realized daily loss. This reservation is conservative after TP1
+and does not guarantee losses cannot exceed the budget during gaps/slippage.
+Manual risk exceptions remain explicit. Entry submissions are serialized, while
+each position is monitored separately; existing order/list usage counts toward
+exchange capacity. Changing settings invalidates old proposals and cancels
+untriggered watches. Lower limits never close or reprice existing positions; new
+entries wait until within limits again. Each new buy requires final approval.
+
+Send `/pnl` for today's **fully completed bot trades in Dubai time (UTC+4)**:
+completed count, wins/losses/breakeven, profit, loss and net USDT after recorded
+commissions. A trade belongs to its final sell-fill day, and its entire net result
+is included even if TP1 filled on a prior day. Open trades, partial exits,
+unfilled watches, zero-fill entries and pending accounting are excluded. BNB fees
+retain saved USDT reference valuation. Invalid journals show an unavailable
+report rather than a false zero. This display is distinct from the UTC daily-risk
+gate, which includes realized partial exits on their fill day.
+
+Ctrl+C announces **“Please wait while I finish saving the current session
+details...”** before waiting for pending work. Trade transitions are already
+journaled continuously; shutdown stops new buys and joins entry, monitor,
+scanner and result-delivery workers before releasing the instance lock. A Windows
+console callback displays the notice independently of the main thread's network
+wait. Current API calls may still need to return before exit. CMD's own
+“Terminate batch job (Y/N)?” prompt may still follow; it is separate from the bot.
+Existing Binance OCOs remain active while local monitoring is stopped.
+
+Code versions and release notes are tracked in [CHANGELOG.md](CHANGELOG.md) and
+Git commit history. Local settings, credentials and trade history stay off GitHub.
+
 ## Discover tokens (v1.2.0)
 
 Send `/discover` and choose **High Volume** or **Top Gainers**, or use
@@ -121,8 +173,8 @@ Tests instantiate the actual SDK with synthetic credentials, intercept its API
 transport, and block sockets and Requests HTTP calls. Do not inject production
 credentials into test processes. `PYTHON_DOTENV_DISABLED=1` prevents loading `.env`.
 
-The deployment policy lives in `safety.py`. Environment variables cannot silently
-raise these limits:
+Defaults and fixed risk policy live in `safety.py`. `/setup` explicitly changes
+the two account-scoped entry limits; environment variables cannot silently raise them:
 
 | Setting | Automatic / scanner plan | Explicit manual override |
 | --- | --- | --- |
@@ -131,20 +183,21 @@ raise these limits:
 | Stop-distance and TP1 reward/risk | 1%-6% and at least 1.5R | User levels; strategy thresholds bypassed |
 | Spread and nearby order-book depth | Enforced | Thresholds bypassed; warnings displayed |
 | Planned trade risk | Up to 1% of available USDT, including reserved fees | Not limited to 1%; estimated stop loss shown before approval |
-| Maximum position | 12 USDT including reserved buy commission | Same 12 USDT cap |
-| Maximum active bot trades | One, including uncertain orders and residuals | Same one-trade limit |
+| Maximum position | Configured cap including reserved buy commission; default 12 USDT | Same configured cap |
+| Maximum active bot trades | Configured count; default one. Uncertain/unprotected records block entries | Same configured count |
 | Daily loss threshold | 3 USDT, based on net realized bot P&L for the UTC day | Entry gate bypassed after explicit manual approval |
 | Authorization | Fresh, single-use Telegram approval | Fresh, single-use **MANUAL RISK OVERRIDE** approval |
 
 The original request specified 10 USDT; the user subsequently changed the position
-cap to **12 USDT**. The user later explicitly authorized manual liquidity/strategy
-and 1%/daily-loss overrides. Automatic policy remains unchanged. The entry point
+cap to **12 USDT**, now the default editable through `/setup`. The user later
+authorized parallel pairs and editable investment caps, retaining the normal
+1%/daily-loss policy and explicit manual exceptions. The entry point
 and selected policy are persisted in each new trade's plan and approved bounds.
 
 Choose **3 - Trading options → Manual** from a `/check` card, provide all four prices,
 and review the labeled override proposal. Selecting Manual or submitting levels
 does not itself place a buy. Trend/setup warnings do not block a manual plan.
-The bot uses the available balance up to the 12 USDT position cap for manual
+The bot uses the available balance up to the configured position cap for manual
 sizing instead of reducing size to the automatic risk budget. Automatic-only 5%
 balance reserve and extra minimum-notional padding are also omitted for manual
 plans; actual exchange minimums and commission-adjusted protective quantities
@@ -155,7 +208,7 @@ Manual override is not permission to ignore exchange validity or lose ownership
 tracking. Finite positive levels in valid order, entry-price drift bounds, symbol
 support, commissions, exchange quantity/price/notional restrictions, account
 identity, valid journals, sufficient funds, OCO protection and approval ceilings
-remain mandatory. If two valid protective OCO legs cannot fit within 12 USDT,
+remain mandatory. If two valid protective OCO legs cannot fit within the configured cap,
 the trade is still skipped with an explanation. The bot never rounds quantity up
 to satisfy a minimum. Manual trades can exceed 1% risk and the automatic daily
 threshold; stop-market slippage can also exceed the displayed estimated loss.
@@ -398,7 +451,7 @@ an approved watch has its separate fixed 15-minute lifetime, which is not renewe
 Scanner summaries include candidate Entry, SL, TP1 and TP2 reference levels even
 when a position, cooldown or another validation prevents an executable proposal.
 These are labeled previews, with the blocking reason; they cannot bypass the
-one-active/unresolved-trade limit or substitute for exchange-rounded order levels.
+configured active-trade limit or substitute for exchange-rounded order levels.
 
 Send **SHOW PR** (case insensitive) or **/showpr** to see the most recent proposal
 or candidate snapshot saved during this bot process. It includes the saved UTC

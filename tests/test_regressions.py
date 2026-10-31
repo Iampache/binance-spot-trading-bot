@@ -247,7 +247,7 @@ def test_07_invalid_risk_evidence_rejected(sim, monkeypatch, value):
 
 def test_08_skip_when_two_ocos_do_not_fit_cap(sim):
     sim.min_notional = "10"
-    with pytest.raises(ValueError, match="12 USDT cap"):
+    with pytest.raises(ValueError, match="Configured size.*minimums"):
         ta.build_plan(sig())
     assert not sim.writes
 

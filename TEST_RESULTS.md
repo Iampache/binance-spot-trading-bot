@@ -1,6 +1,6 @@
 # Offline validation results
 
-Latest v1.2.0 result: **425 passed, 3 native Windows skips**, three upstream
+Latest v1.3.0 result: **479 passed, 3 native Windows skips**, three upstream
 deprecation warnings. Ruff lint/format, Bandit, dependency and whitespace checks
 pass. The sections below retain earlier run history; the latest regression
 details are recorded at the end.
@@ -8,7 +8,8 @@ details are recorded at the end.
 Environment: Linux, Python 3.12.14, python-binance 1.0.37. The original 13 scenarios
 were retained and migrated from an invented exchange interface to the actual SDK
 transport simulator; the old unconditional fake `binance` module was removed.
-Policy assertions now enforce the requested 12 USDT / 1% / one trade / 3 USDT limits.
+Default-policy assertions retain 12 USDT / 1% / one trade / 3 USDT; v1.3 tests
+also enforce explicitly confirmed account-specific trade count/investment caps.
 Tests for changed behavior assert verified closure or durable uncertainty rather
 than assuming an exception is the only correct recovery outcome.
 
@@ -557,3 +558,31 @@ Ruff/format, Bandit, dependency and whitespace checks pass. No real Binance or
 Telegram services, production credentials or real orders were used. Public
 Binance REST documentation was reviewed; no dashboard scraping or proprietary
 listing-date API was introduced. No strategy profitability was measured.
+
+## Account settings, parallel pairs, completed P&L and shutdown (v1.3.0)
+
+Fifty-four new cases verify default/persistent account-isolated settings, atomic
+change history and replacement failure, invalid input, stale revisions/approvals,
+current-cap preflight, two protected pairs and restart, duplicate/unresolved
+blockers, unowned/changed orders, exchange-wide capacity including current orders,
+normal daily-risk reservation, watch cash reservation, lower-limit grandfathering,
+corrupt settings/audit rejection, concurrent admission within the selected count,
+closing one pair without touching another, and active BNB-fee positions.
+
+Owner setup tests verify review/confirmation, cancel/global cancel/expiry,
+sender/message authorization, stale menus, old proposal/watch invalidation and
+existing protection preservation. Reporting tests verify fee-adjusted winners
+and losers, Dubai/UTC day boundaries, final-sell completion with prior-day TP1,
+partial/unfilled exclusions, aggregation and unavailable invalid accounting.
+Shutdown tests verify the flushed notice, signal restoration, mocked Windows
+console callback, stopping symbol expansion and joining before lock release.
+Existing entry, protection, restart, ownership and commission regressions pass.
+The simulator now supports multiple synthetic base assets using the real pinned
+SDK transport; it still never connects to a service.
+
+Full local suite: **479 passed, 3 native Windows skips**, three upstream warnings.
+Ruff lint/format, Bandit, dependency and whitespace checks pass. No production
+credentials, live Binance, Telegram service or real trades were used. Actual
+Windows console Ctrl+C timing remains for native verification; mocked callback
+tests do not claim to measure it. The new parallel-capability paths have not had
+live matching-engine or strategy profitability validation.

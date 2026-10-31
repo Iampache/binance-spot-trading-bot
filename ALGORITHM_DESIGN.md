@@ -1,6 +1,6 @@
 # TRBT algorithmic proposal design
 
-Display version: 1.2.0. Strategy identity: `atr-structure-v2`.
+Display version: 1.3.0. Strategy identity: `atr-structure-v2`.
 Reviewed public documentation on 31 October 2026 (Asia/Dubai).
 
 This is a deterministic rules-based proposal generator, not a trained AI model,
@@ -96,11 +96,16 @@ fees/slippage/loss will match the estimate. BNB discount savings are not assumed
 
 All existing account identity, journal, open/unresolved position, balance,
 liquidity/spread/depth, fee, exchange precision, minimum notional, quantity and OCO
-capacity checks remain. Numerical policy is unchanged: 10M USDT minimum 24h
-volume, 1% of available USDT risk, 12 USDT position including reserve, one active
+capacity checks remain. Fixed normal risk policy retains 10M USDT minimum 24h
+volume, 1% of available USDT risk, configured position cap including reserve (default
+12 USDT), configured active count (default one), and mandatory protection for each
 trade and 3 USDT daily loss threshold. Algorithm modes cannot invoke manual
 exceptions; unsupported exchange minimums cause an explained skip. The 24h move
 must also remain within the scanner's -15% / +25% pump/dump boundaries.
+V1.3 adds owner-confirmed `/setup` caps and settings-revision approval binding.
+Different pairs can coexist only with verified, fully covered inventory or empty
+entry watches. Other watches reserve USDT; all active plans reserve their full
+estimated loss against the daily budget. Unknown positions/orders still block.
 
 At final planning and immediately before an approved entry, re-fetch closed
 candles and verify eligibility. Preserve the strategy identity, original analysis
@@ -121,7 +126,7 @@ order. New closed-candle stop breaches invalidate such a watch before buying.
 | Source | What was checked | Consequence for TRBT |
 | --- | --- | --- |
 | [Binance Spot REST](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md) | Klines, server time, order book, IOC, OCO and OTOCO | Separate closed-bar analysis from live execution; retain existing verified order lifecycle. Native OTOCO pending orders wait for full working-order execution and do not solve the current two-bracket/partial-fill design automatically. |
-| [Binance filters](https://github.com/binance/binance-spot-api-docs/blob/master/filters.md) | PRICE_FILTER, LOT_SIZE, MIN_NOTIONAL/NOTIONAL, market quantities, percent bounds | Filter validity is separate from strategy suitability; never enlarge the 12 USDT budget to force two OCO legs. |
+| [Binance filters](https://github.com/binance/binance-spot-api-docs/blob/master/filters.md) | PRICE_FILTER, LOT_SIZE, MIN_NOTIONAL/NOTIONAL, market quantities, percent bounds | Filter validity is separate from strategy suitability; never enlarge the configured budget to force two OCO legs. |
 | [Freqtrade Telegram](https://github.com/freqtrade/freqtrade/blob/develop/docs/telegram-usage.md) | Status/profit views, command/confirmation controls | Make strategy suggestions, execution authorization and realized results distinct. No Freqtrade commands or trading behavior were copied into this bot. |
 | [Freqtrade strategy customization](https://github.com/freqtrade/freqtrade/blob/develop/docs/strategy-customization.md) and [lookahead analysis](https://github.com/freqtrade/freqtrade/blob/develop/docs/lookahead-analysis.md) | Candle-based signals, strategy separation, future-data leakage tests | Exclude unfinished candles and document the need for independent walk-forward validation. |
 | [OctoBot public README](https://github.com/Drakkar-Software/OctoBot) | Publicly documented Telegram interface, paper trading and backtesting features | Compare interface/testing practices only. No OctoBot instance was contacted, run or evaluated for profitability. |

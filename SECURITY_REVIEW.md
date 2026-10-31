@@ -7,6 +7,47 @@ agent, plus independent automated static analysis using Bandit. It is **not an
 independent human or third-party audit**, and is not certification for live trading.
 No Binance account, production credential or Telegram integration was accessed.
 
+## Configurable limits and parallel ownership (v1.3.0)
+
+The owner requested editable trade count/investment caps and concurrent pairs.
+The default 1 / 12 USDT values remain in safety.py, while confirmed account
+settings override only these entry ceilings. Atomic local settings include
+verified account/environment context, revision and old/new-value history; values
+must match the complete audit chain. Invalid files fail closed for new entries
+without disabling existing protected-trade recovery. Files remain Git-ignored.
+Owner sender/chat, message ID, expiry and generation protect setup selectors;
+confirmation is single use. A settings revision binds every new plan/approval.
+Updates share the account operation lock with entry submission, invalidate old
+proposals and cancel untriggered watches. Reducing caps preserves existing trades.
+
+Parallelism permits distinct pairs with known, protected inventory or empty
+entry watches. Duplicate pairs, uncertain states and missing coverage block
+entries. Planning and submission share the account lock; other positions are
+refreshed and exchange open orders must exactly match their recorded identities,
+OCO parents, sides/types, quantities and levels. Missing, extra, duplicate or
+changed orders are rejected. Current symbol/exchange-wide order, algorithmic
+order and list counts are included in protective capacity checks. Existing
+owned-sell quantity/baseline controls still isolate exits by pair.
+
+Empty watches reserve approved cost against free USDT. All other active plans
+reserve full planned stop risk against the normal remaining daily budget; partial
+exit risk is conservatively retained until closure. Verified partial sell events
+still count in UTC daily P&L. Manual exceptions remain explicit. These reserves
+cannot guarantee a maximum realized loss through gaps or execution failures.
+The short Telegram lock covers submission rather than the monitoring lifetime;
+account locks continue to serialize durable transitions. Closing/recovering one
+pair is regression-tested to preserve another pair's inventory/OCOs.
+
+Completed-trade /pnl is read-only and labels Dubai completion-day accounting,
+full-trade net fees, excluded positions and reference-valued BNB fees. It does not
+replace the UTC daily gate or hide invalid accounting with zero. Ctrl+C requests
+a cooperative stop, announces pending work and waits for all managed journal
+writers before releasing the instance lock; normal recovery remains authoritative
+after restart. Windows console callback logic is mocked here; actual console
+timing is not measured. No live trade/concurrency validation or independent audit
+is claimed. CHANGELOG.md tracks source versions; private settings/history remain
+local, with no account information added to GitHub.
+
 ## Discovery and owner-requested BTC advisory policy (v1.2.0)
 
 Discovery reads only public exchange metadata and rolling 24h tickers. It does

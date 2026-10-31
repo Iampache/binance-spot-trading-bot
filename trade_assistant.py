@@ -7,6 +7,7 @@ from decimal import ROUND_CEILING, Decimal
 import entry_scanner as sc
 import exit_manager as em
 import safety
+import trading_settings as settings
 
 MAX_POSITION_USDT = safety.MAX_POSITION_USDT
 MAX_OPEN_TRADES = safety.MAX_OPEN_TRADES
@@ -33,10 +34,10 @@ class ActiveTradeError(ValueError):
     """The account's existing durable trade slot prevents a new entry."""
 
 
-def active_trade_reason(symbol, records):
+def active_trade_reason(symbol, records, limit=1):
     if len(records) != 1:
         names = ", ".join(sorted({record["symbol"] for record in records}))
-        return f"Active or unresolved trades: {names}; only one active trade is allowed."
+        return f"Active or unresolved trades: {names}; active trade limit is {limit}."
     record = records[0]
     name = record["symbol"]
     if record.get("entry_watch", {}).get("active"):
@@ -54,26 +55,101 @@ def active_trade_reason(symbol, records):
         return f"{name} entry is pending confirmation; duplicate entries are blocked."
     if name == symbol:
         return f"{name} trade already in progress; duplicate entry blocked."
-    return f"{name} trade is in progress; only one active trade is allowed."
+    if limit == 1:
+        return f"{name} trade is in progress; only one active trade is allowed."
+    return f"{name} trade is in progress; active trade limit {limit} reached."
 
 
-def ensure_free_trade_slot(symbol, *, watch_id=None):
-    blocking = [record for record in em.active_trades() if not empty_watch(record, watch_id)]
-    if blocking:
-        raise ActiveTradeError(active_trade_reason(symbol, blocking))
+def ensure_free_trade_slot(symbol, *, watch_id=None, limits=None):
+    limits = limits or settings.read()
+    records = [record for record in em.active_trades() if not empty_watch(record, watch_id)]
+    if len({record["symbol"] for record in records}) != len(records):
+        raise ActiveTradeError(
+            "Duplicate pair records require reconciliation; new entries blocked."
+        )
+    if len(records) >= limits["max_open_trades"]:
+        raise ActiveTradeError(active_trade_reason(symbol, records, limits["max_open_trades"]))
+    for record in records:
+        if record["symbol"] == symbol:
+            raise ActiveTradeError(active_trade_reason(symbol, [record], limits["max_open_trades"]))
+        if empty_watch(record, record["id"]):
+            continue
+        if (
+            record["state"] != "protected"
+            or em.inventory(record) <= 0
+            or em.coverage(record) < em.inventory(record)
+        ):
+            raise ActiveTradeError(
+                f"{record['symbol']} trade requires reconciliation/protection; new entries are blocked."
+            )
+    return records
+
+
+def verify_parallel_positions(records):
+    """Read/revalidate other pairs, never cancel or trade them during planning."""
+    known = {}
+    for rec in records:
+        if empty_watch(rec, rec["id"]):
+            continue
+        em.refresh(rec)
+        if rec["state"] != "protected" or not 0 < em.inventory(rec) <= em.coverage(rec):
+            raise ActiveTradeError(
+                f"{rec['symbol']} protection/accounting changed; reconciliation required."
+            )
+        if any(em.executions(rec, "SELL")):
+            em.attach_fee_valuations(rec)
+        for order in rec["orders"]:
+            if order["status"] not in em.TERMINAL:
+                if order["purpose"] not in ("stop", "target"):
+                    raise ActiveTradeError("A bot order still requires reconciliation.")
+                key = (rec["symbol"], order["orderId"])
+                if key in known:
+                    raise ActiveTradeError("Overlapping order ownership requires reconciliation.")
+                known[key] = (rec, order)
+    opened = em.get_client().get_open_orders()
+    if not isinstance(opened, list):
+        raise ValueError("Invalid exchange open-order evidence")
+    seen = set()
+    for row in opened:
+        key = (row["symbol"], row["orderId"])
+        if key in seen or key not in known:
+            raise ValueError("Existing exchange orders: cannot establish isolated ownership")
+        seen.add(key)
+        rec, order = known[key]
+        parent = next(item for item in rec["oco"] if order["cid"] in item["order_cids"])
+        target = order["purpose"] == "target"
+        if (
+            row["clientOrderId"] not in {order["cid"], order.get("cancel_cid")}
+            or row["side"] != "SELL"
+            or row["type"] != ("LIMIT_MAKER" if target else "STOP_LOSS")
+            or row["status"] != order["status"]
+            or row["orderListId"] != parent["orderListId"]
+            or em.D(row["origQty"]) != em.D(order["qty"])
+            or em.D(row["executedQty"]) != em.D(order["executedQty"])
+            or em.D(row["price" if target else "stopPrice"])
+            != em.D(parent["tp" if target else "stop"])
+        ):
+            raise ActiveTradeError("Existing protective order changed; reconciliation required.")
+    if seen != set(known):
+        raise ActiveTradeError("Existing protective orders changed; reconciliation required.")
+    return opened
 
 
 def scan_candidates():
+    if em.STOP.is_set():
+        return {}, ""
     note = sc.btc_note()
     candidates = {}
     for symbol, _, change in sc.universe():
+        if em.STOP.is_set():
+            break
         try:
             signal = sc.analyze(symbol, change)
             if signal:
                 candidates[symbol] = signal
         except Exception as error:
             sc.log.warning("%s: %s", symbol, safety.safe_error(error))
-        time.sleep(0.15)
+        em.STOP.wait(0.15)
     return candidates, note
 
 
@@ -116,6 +192,11 @@ def risk_amount(qty, entry, stop, fee):
 
 
 def build_plan(sig, *, approved_bounds=None, watch_id=None):
+    with em.operation_lock():
+        return _build_plan(sig, approved_bounds=approved_bounds, watch_id=watch_id)
+
+
+def _build_plan(sig, *, approved_bounds=None, watch_id=None):
     require_finite_levels(sig)
     manual = sig.get("manual_override", False)
     if type(manual) is not bool:
@@ -125,9 +206,18 @@ def build_plan(sig, *, approved_bounds=None, watch_id=None):
         raise ValueError("Algorithm mode requires normal risk checks; manual override is separate")
     warnings = []
     em.require_trade_permission()
-    if sc.RISK_PCT != 1 or MAX_POSITION_USDT != 12 or MAX_OPEN_TRADES != 1:
-        raise ValueError("Required limits: 1% risk, 12 USDT position, one open trade")
-    ensure_free_trade_slot(sig["symbol"], watch_id=watch_id)
+    if sc.RISK_PCT != 1:
+        raise ValueError("Automatic risk must remain 1%")
+    limits = settings.read()
+    if (
+        approved_bounds is not None
+        and int(approved_bounds.get("settings_revision", 0)) != limits["revision"]
+    ):
+        raise PlanChangedError(
+            "Trading settings changed; a fresh proposal and approval are required"
+        )
+    records = ensure_free_trade_slot(sig["symbol"], watch_id=watch_id, limits=limits)
+    opened = verify_parallel_positions(records)
     c = em.get_client()
     symbol = sig["symbol"]
     ticker = c.get_ticker(symbol=symbol)
@@ -206,21 +296,31 @@ def build_plan(sig, *, approved_bounds=None, watch_id=None):
                 f"minimum TP1 {em.fmt(minimum)}. Signal entry {em.fmt(sig['entry'])}."
             )
         warnings.append(f"TP1 reward/risk {(t1 - price) / risk:.2f}R is below 1.5R")
-    if c.get_open_orders():
-        raise ValueError("Existing exchange orders: cannot establish isolated ownership")
-    balance = em.D(c.get_asset_balance(asset="USDT")["free"])
+    watch_costs = [
+        em.D(rec["approved_bounds"]["cost"]) for rec in records if empty_watch(rec, rec["id"])
+    ]
+    risks = [em.D(rec["plan"]["loss"]) for rec in records]
+    if any(value <= 0 for value in watch_costs + risks):
+        raise ValueError("Invalid active-trade reservation")
+    watch_reserve = sum(watch_costs, Decimal(0))
+    committed_risk = sum(risks, Decimal(0))
+    balance = em.D(c.get_asset_balance(asset="USDT")["free"]) - watch_reserve
     if balance <= 0:
         raise ValueError("No available USDT")
     fee_schedule = em.commission_schedule(symbol)
     fee = fee_schedule["reserve_rate"]
     daily_loss = em.todays_loss(watch_id=watch_id) if watch_id is not None else em.todays_loss()
-    remaining = em.D(3) - daily_loss
+    remaining = em.D(3) - daily_loss - committed_risk
     # Manual approval accepts the chosen levels at the position cap, instead of
     # reducing quantity to the automatic 1%/daily-risk budget.
-    max_cost = min(em.D(12), balance if manual else balance * Decimal(".95"))
+    max_cost = min(
+        em.D(limits["max_position_usdt"]), balance if manual else balance * Decimal(".95")
+    )
     budget = max_cost if manual else min(balance / 100, remaining)
     if not manual and budget <= 0:
-        raise ValueError("Daily bot-trade loss limit reached")
+        raise ValueError(
+            "Daily bot-trade loss limit reached or risk budget committed to active trades"
+        )
     risk_per_unit = risk + (price + stop) * fee
     cost_limit_units = max_cost / (price * (1 + fee))
     qty = em.round_to(
@@ -245,7 +345,8 @@ def build_plan(sig, *, approved_bounds=None, watch_id=None):
         warnings.append(f"Planned stop loss {loss:.2f} USDT exceeds 1% of available USDT")
     if manual and loss > remaining:
         warnings.append(
-            f"Daily realized loss {daily_loss:.2f} USDT plus planned risk {loss:.2f} USDT "
+            f"Daily realized loss {daily_loss:.2f} USDT plus committed risk {committed_risk:.2f} "
+            f"and planned risk {loss:.2f} USDT "
             "exceeds the automatic 3 USDT daily budget"
         )
     spread, depth = market_liquidity(symbol, qty * price, enforce=not manual)
@@ -284,17 +385,24 @@ def build_plan(sig, *, approved_bounds=None, watch_id=None):
         "depth_usdt": depth,
         "manual_override": manual,
         "override_warnings": warnings,
+        "settings_revision": limits["revision"],
+        "max_open_trades": limits["max_open_trades"],
+        "max_position_usdt": limits["max_position_usdt"],
+        "committed_risk": committed_risk,
+        "watch_reserve": watch_reserve,
     }
     if algorithmic:
         import algorithmic_planner as algo
 
         plan.update({key: sig[key] for key in ALGORITHM_FIELDS})
         plan["market_warning"] = algo.validate_plan(sig, plan)
-    em.preflight(plan, f)
+    em.preflight(plan, f, open_orders=opened)
     return plan
 
 
 def approval_bounds(old, fresh):
+    if str(old.get("settings_revision", 0)) != str(fresh.get("settings_revision", 0)):
+        return False
     if old["symbol"] != fresh["symbol"] or str(old.get("manual_override", False)) != str(
         fresh.get("manual_override", False)
     ):
@@ -315,7 +423,7 @@ def approval_bounds(old, fresh):
     )
 
 
-def execute(plan, *, approval=None):
+def execute(plan, *, approval=None, monitor=True):
     """No entry without explicit displayed bounds supplied by the Telegram handler."""
     if (
         approval is None
@@ -327,9 +435,12 @@ def execute(plan, *, approval=None):
         raise ValueError("Explicit unchanged Telegram approval bounds required")
     with em.operation_lock():
         em.require_trade_permission()
-        blocking = em.active_trades()
-        if blocking:
-            raise RuntimeError(active_trade_reason(plan["symbol"], blocking))
+        try:
+            ensure_free_trade_slot(plan["symbol"])
+        except ActiveTradeError as error:
+            raise RuntimeError(str(error)) from None
+        if int(plan.get("settings_revision", 0)) != settings.read()["revision"]:
+            raise PlanChangedError("Trading settings changed; fresh approval required")
         if any(r.get("approval_id") == approval["approval_id"] for r in em.load_trades()):
             raise ValueError("Approval already consumed")
         # Rebuild immediately under account operation lock to enforce risk, filters,
@@ -372,7 +483,8 @@ def execute(plan, *, approval=None):
         else:
             rec = em.new_trade(plan, approval=approval)
             submit_entry(rec, plan)
-    em.monitor_trade(rec)
+    if monitor:
+        em.monitor_trade(rec)
     return rec
 
 

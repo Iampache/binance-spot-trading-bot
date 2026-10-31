@@ -21,6 +21,7 @@ class SpotSimulator:
         self.client = Client("offline-test-key", "offline-test-secret", testnet=True, ping=False)
         self.client._request_api = self.request
         self.uid = "12345"
+        self.symbols = ["FOOUSDT"]
         self.price = D("100")
         self.free = {"USDT": D("500"), "FOO": D("0"), "BNB": D(1)}
         self.locked = {"USDT": D("0"), "FOO": D("0"), "BNB": D(0)}
@@ -85,7 +86,7 @@ class SpotSimulator:
         self.next_id += 1
         qty = D(data["quantity"])
         order = {
-            "symbol": "FOOUSDT",
+            "symbol": data.get("symbol", "FOOUSDT"),
             "orderId": oid,
             "clientOrderId": cid or data["newClientOrderId"],
             "side": side,
@@ -101,13 +102,14 @@ class SpotSimulator:
         return order
 
     def fill(self, order, qty=None, price=None, terminal=True):
+        base = order["symbol"][:-4]
         qty = D(qty if qty is not None else D(order["origQty"]) - D(order["executedQty"]))
         price = D(price if price is not None else self.price)
         if qty <= 0:
             return
         quote = qty * price
         asset = self.fee_asset
-        fee = (qty if asset == "FOO" else quote) * self.fee_rate
+        fee = (qty if asset == base else quote) * self.fee_rate
         if asset == "BNB":
             multiplier = self.discount_multiplier if self.bnb_discount else D(1)
             fee = quote * self.fee_rate * multiplier / self.bnb_price
@@ -120,19 +122,19 @@ class SpotSimulator:
                 )
         if order.get("orderListId"):
             item = self.lists[order["orderListId"]]
-            self.locked["FOO"] -= qty
+            self.locked[base] -= qty
             for other in item["orders"]:
                 sibling = self.orders[other["orderId"]]
                 if sibling["orderId"] != order["orderId"]:
                     sibling["status"] = "CANCELED"
         if order["side"] == "BUY":
             self.free["USDT"] -= quote + (fee if asset == "USDT" else 0)
-            self.free["FOO"] += qty - (fee if asset == "FOO" else 0)
+            self.free[base] += qty - (fee if asset == base else 0)
         else:
             if not order.get("orderListId"):
-                self.free["FOO"] -= qty + (fee if asset == "FOO" else 0)
-            elif asset == "FOO":
-                self.free["FOO"] -= fee
+                self.free[base] -= qty + (fee if asset == base else 0)
+            elif asset == base:
+                self.free[base] -= fee
             self.free["USDT"] += quote - (fee if asset == "USDT" else 0)
         order["executedQty"] = str(D(order["executedQty"]) + qty)
         order["cummulativeQuoteQty"] = str(D(order["cummulativeQuoteQty"]) + quote)
@@ -140,7 +142,7 @@ class SpotSimulator:
         self.trades.append(
             {
                 "id": len(self.trades) + 1,
-                "symbol": "FOOUSDT",
+                "symbol": order["symbol"],
                 "orderId": order["orderId"],
                 "isBuyer": order["side"] == "BUY",
                 "time": self.clock,
@@ -173,10 +175,14 @@ class SpotSimulator:
             if path == "account":
                 return {"uid": int(self.uid), "accountType": "SPOT", "canTrade": True}
             if path == "exchangeInfo":
-                return {"symbols": [self.info()]}
+                info = self.info()
+                return {
+                    "symbols": [info]
+                    + [{**info, "symbol": s, "baseAsset": s[:-4]} for s in self.symbols[1:]]
+                }
             if path == "ticker/24hr":
                 return {
-                    "symbol": "FOOUSDT",
+                    "symbol": data.get("symbol", "FOOUSDT"),
                     "quoteVolume": "20000000",
                     "lastPrice": str(self.price),
                     "priceChangePercent": "1",
@@ -184,10 +190,10 @@ class SpotSimulator:
             if path == "ticker/price":
                 if data.get("symbol") == "BNBUSDT":
                     return {"symbol": "BNBUSDT", "price": str(self.bnb_price)}
-                return {"symbol": "FOOUSDT", "price": str(self.price)}
+                return {"symbol": data.get("symbol", "FOOUSDT"), "price": str(self.price)}
             if path == "ticker/bookTicker":
                 return {
-                    "symbol": "FOOUSDT",
+                    "symbol": data.get("symbol", "FOOUSDT"),
                     "bidPrice": str(self.price - D(".01")),
                     "askPrice": str(self.price),
                 }
@@ -200,7 +206,7 @@ class SpotSimulator:
                 return {"mins": 5, "price": str(self.price)}
             if path == "account/commission":
                 return {
-                    "symbol": "FOOUSDT",
+                    "symbol": data.get("symbol", "FOOUSDT"),
                     "discount": {
                         "enabledForAccount": self.bnb_discount,
                         "enabledForSymbol": self.bnb_discount,
@@ -295,23 +301,24 @@ class SpotSimulator:
             lid = self.next_list
             self.next_list += 1
             qty = D(data["quantity"])
-            if self.free["FOO"] < qty:
+            base = data["symbol"][:-4]
+            if self.free[base] < qty:
                 raise api_error(-2010)
             top = self.make_order(data, "SELL", "LIMIT_MAKER", data["aboveClientOrderId"])
             bottom = self.make_order(data, "SELL", "STOP_LOSS", data["belowClientOrderId"])
             top["orderListId"] = bottom["orderListId"] = lid
             top["price"] = data["abovePrice"]
             bottom["stopPrice"] = data["belowStopPrice"]
-            self.free["FOO"] -= qty
-            self.locked["FOO"] += qty
+            self.free[base] -= qty
+            self.locked[base] += qty
             item = {
-                "symbol": "FOOUSDT",
+                "symbol": data["symbol"],
                 "listClientOrderId": data["listClientOrderId"],
                 "orderListId": lid,
                 "listOrderStatus": "EXECUTING",
                 "orders": [
                     {
-                        "symbol": "FOOUSDT",
+                        "symbol": data["symbol"],
                         "orderId": o["orderId"],
                         "clientOrderId": o["clientOrderId"],
                     }
@@ -340,8 +347,8 @@ class SpotSimulator:
             item["listClientOrderId"] = data["newClientOrderId"]
             legs = [self.orders[o["orderId"]] for o in item["orders"]]
             left = D(legs[0]["origQty"]) - sum((D(o["executedQty"]) for o in legs), D(0))
-            self.locked["FOO"] -= left
-            self.free["FOO"] += left
+            self.locked[item["symbol"][:-4]] -= left
+            self.free[item["symbol"][:-4]] += left
             for o in legs:
                 if o["status"] not in ("FILLED", "CANCELED"):
                     o["status"] = "CANCELED"

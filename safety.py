@@ -1,4 +1,4 @@
-"""Credential-safe diagnostics and immutable deployment limits."""
+"""Credential-safe diagnostics, default entry caps and fixed risk policy."""
 
 import logging
 import re

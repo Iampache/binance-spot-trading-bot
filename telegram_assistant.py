@@ -16,7 +16,7 @@ Safeguards (apply to ALL paths, including manual):
   - Only taps/messages from YOUR chat ID (TELEGRAM_CHAT_ID) are accepted
   - Proposals expire after 5 minutes (APPROVAL_TTL_SECONDS); /check cards after 10 (CHECK_TTL_SECONDS)
   - Automatic plans retain 1% risk, 3 USDT daily budget and strategy filters.
-  - Manual override exceptions are explicit; 12 USDT cap, one active trade and exchange rules remain.
+  - Manual override exceptions are explicit; configured entry caps and exchange rules remain.
   - Enter now freezes the approved ask-based cap; Wait watches locally for up to 15 minutes.
   - Watch restart/read failure cancels authorization; submitted buys always retain recovery.
   - If protection fails, confirmed bot-owned free inventory is reconciled before an exit attempt
@@ -45,7 +45,10 @@ import entry_scanner as sc
 import exit_manager as em
 import market_discovery as discovery
 import safety
+import shutdown_control
 import trade_assistant as ta
+import trade_reporting
+import trading_settings as settings
 from branding import BRANDING
 from telegram_formatting import spot_url, ticker_link_options
 
@@ -63,12 +66,13 @@ last_preview = {}  # read-only snapshot for SHOW PR; never an approval source
 pending = {}  # proposal id -> dict
 checks = {}  # /check card id -> dict
 discovery_views = {}  # ephemeral read-only discovery menus/results
+setup_views = {}  # owner-only setting changes awaiting confirmation
 state = {}  # conversation state for /check and manual entry
 recheck_timers = set()
 proposal_generation = 0
 workers = set()
 pend_lock = threading.Lock()
-trade_lock = threading.Lock()  # one live trade being executed/managed at a time
+trade_lock = threading.Lock()  # serialize entry submission; monitor positions independently
 
 HELP = (
     "TRBT | Commands\n\n"
@@ -80,6 +84,8 @@ HELP = (
     "Full pairs such as ZROUSDT or ZRO/USDT also work.\n"
     "/check_ticker or /check-ticker — aliases for /check\n"
     "/status — balance, bot positions, stop coverage and entry watches\n"
+    "/setup — change maximum active trades and per-trade investment cap\n"
+    "/pnl — today's completed bot-trade profit/loss (Dubai time)\n"
     "/showpr or SHOW PR — latest saved proposal/candidate; view only\n"
     "/cancel — cancel pending proposals, forms, rechecks and untriggered watches. "
     "Does NOT close a position or cancel its protective OCOs.\n\n"
@@ -92,7 +98,7 @@ HELP = (
     "BTC weakness is advisory; the coin's own trend/setup checks still apply.\n"
     "STOP (or EXIT) means the stop-loss trigger, not a guaranteed execution price.\n\n"
     "Proposal buttons: Details (full explanation), Approve or Reject. "
-    "Buying always needs approval; one active/unresolved trade maximum."
+    "Buying always needs approval; configured investment/active-trade limits apply (/setup)."
 )
 
 
@@ -195,7 +201,7 @@ def proposal_text(sig, p, note):
     if p.get("manual_override") is True:
         lines += [
             "MANUAL RISK OVERRIDE: liquidity/strategy checks, 1% sizing and the 3 USDT daily-loss gate are bypassed.",
-            "12 USDT cap, one active trade and OCO protection remain mandatory.",
+            f"{p['max_position_usdt']} USDT cap, max {p['max_open_trades']} active trades and OCO protection remain mandatory.",
         ]
         count = len(p.get("override_warnings", []))
         if count:
@@ -259,7 +265,7 @@ def proposal_details_text(sig, p, note):
             "",
             "MANUAL RISK OVERRIDE — approving accepts the risks below.",
             "Volume, spread/depth, trend/setup, reward/risk, stop-distance, 1% sizing and the 3 USDT daily-loss gate are bypassed.",
-            "12 USDT cap, one active/unresolved trade, exchange rules and OCO protection remain mandatory.",
+            f"{p['max_position_usdt']} USDT cap, max {p['max_open_trades']} active trades, exchange rules and OCO protection remain mandatory.",
             "Estimated stop loss includes reserved fees, but slippage can make the actual loss larger.",
         ]
         lines += [f"OVERRIDDEN: {warning}" for warning in p.get("override_warnings", [])]
@@ -271,6 +277,8 @@ def proposal_details_text(sig, p, note):
 
 
 def send_proposal(sig, plan, note):
+    if int(plan.get("settings_revision", 0)) != settings.read()["revision"]:
+        return False
     with pend_lock:
         generation = proposal_generation
     pid = uuid.uuid4().hex
@@ -340,6 +348,12 @@ def expire_pending():
         edit(item, "EXPIRED. No order placed.")
     if state and now - state.get("t", now) > 600:
         state.clear()
+    for sid, view in list(setup_views.items()):
+        if now - view["created"] > CHECK_TTL:
+            setup_views.pop(sid, None)
+            if state.get("setup_id") == sid:
+                state.clear()
+            edit(view, "EXPIRED. Send /setup again.")
     for vid, view in list(discovery_views.items()):
         if now - view["created"] > CHECK_TTL:
             discovery_views.pop(vid, None)
@@ -606,6 +620,7 @@ def show_trading_options(res, *, cid=None, item=None, generation=None):
         generation = proposal_generation
     if generation != proposal_generation:
         return None
+    limits = settings.read()
     cid = cid or uuid.uuid4().hex
     item = item or {"res": res, "created": time.time()}
     state.clear()
@@ -626,7 +641,7 @@ def show_trading_options(res, *, cid=None, item=None, generation=None):
         "Algorithm modes enforce normal liquidity, 1% risk and 3 USDT daily-loss limits. "
         "BTC trend is advisory; a weak/downward trend shows a warning. "
         "Manual mode retains its explicit risk override.\n"
-        "All modes: 12 USDT cap, one active trade, protective OCOs and final approval.\n"
+        f"All modes: {limits['max_position_usdt']} USDT cap, max {limits['max_open_trades']} active trades, protective OCOs and final approval.\n"
         "/cancel to stop."
     )
     result = say(
@@ -799,19 +814,24 @@ def handle_manual(text):
 
 # ---------- execution ----------
 def run_trade(plan, approval):
+    rec = None
     try:
-        ta.execute(plan, approval=approval)
-    except ta.PlanChangedError:
-        em.alert(
-            "NOT SUBMITTED: final market/size/risk checks exceeded the approved bounds. "
-            "No buy was submitted. Request and approve a fresh proposal."
-        )
-    except BinanceAPIException as e:
-        em.alert(safe(e))
-    except Exception as e:
-        em.alert(f"Error: {safe(e)}. Check Open Orders and Holdings on Binance now.")
+        try:
+            rec = ta.execute(plan, approval=approval, monitor=False)
+        except ta.PlanChangedError:
+            em.alert(
+                "NOT SUBMITTED: market/risk checks or settings changed after approval. "
+                "No buy was submitted. Request and approve a fresh proposal."
+            )
+        except BinanceAPIException as e:
+            em.alert(safe(e))
+        except Exception as e:
+            em.alert(f"Error: {safe(e)}. Check Open Orders and Holdings on Binance now.")
+        finally:
+            trade_lock.release()  # Submission is serialized; position monitoring is separate.
+        if rec is not None:
+            em.monitor_trade(rec)
     finally:
-        trade_lock.release()
         workers.discard(threading.current_thread())
 
 
@@ -821,6 +841,9 @@ def handle_callback(cb):
     if str(sender) != str(CHAT_ID) or str(chat) != str(CHAT_ID):
         return  # ignore strangers completely
     action, _, pid = cb.get("data", "").partition(":")
+    if action.startswith("S"):
+        handle_setup_callback(cb, action, pid)
+        return
     if action.startswith("V"):
         handle_discovery_callback(cb, action, pid)
         return
@@ -867,7 +890,9 @@ def handle_callback(cb):
 
     tg("answerCallbackQuery", callback_query_id=cb["id"], text="Checking live price...")
     if not trade_lock.acquire(blocking=False):
-        edit(item, "NOT PLACED: another trade is still being managed.")
+        edit(
+            item, "NOT PLACED: another entry is being submitted. Request a fresh proposal shortly."
+        )
         return
     try:
         old = item["plan"]
@@ -936,9 +961,12 @@ def handle_message(msg):
         state.clear()
         with pend_lock:
             proposal_generation += 1
-            canceled_checks = list(checks.values()) + list(discovery_views.values())
+            canceled_checks = (
+                list(checks.values()) + list(discovery_views.values()) + list(setup_views.values())
+            )
             checks.clear()
             discovery_views.clear()
+            setup_views.clear()
             canceled = list(pending.values())
             pending.clear()
         for card in canceled_checks:
@@ -957,6 +985,17 @@ def handle_message(msg):
             f"Cancelled {watches} untriggered entry watch(es), pending proposals, manual entry and scheduled rechecks. "
             "Already submitted orders and protective OCOs remain active; /status shows them."
         )
+    elif command == "/setup":
+        state.clear()
+        try:
+            send_setup_menu()
+        except Exception as error:
+            say("Setup unavailable: " + safe(error) + ". No change confirmed.")
+    elif command == "/pnl":
+        try:
+            say(trade_reporting.todays_pnl())
+        except Exception as error:
+            say("P&L unavailable: verified trade/fee records could not be read. " + safe(error))
     elif command == "/discover":
         state.clear()
         parts = text.split(None, 1)
@@ -976,6 +1015,8 @@ def handle_message(msg):
         else:
             state.update(step="ticker", t=time.time())
             say("Which coin? Send just the ticker, for example ZRO. USDT is added automatically.")
+    elif state.get("step") == "setup_value" and text:
+        handle_setup_value(text)
     elif state.get("step") == "ticker" and text:
         state.clear()
         run_check(text)
@@ -983,6 +1024,175 @@ def handle_message(msg):
         handle_algorithm_targets(text)
     elif state.get("step") == "manual" and text:
         handle_manual(text)
+
+
+# ---------- owner setup ----------
+def register_setup_view(text, buttons, *, limits, field=None, value=None):
+    sid = uuid.uuid4().hex
+    generation = proposal_generation
+    kb = [[{"text": label, "callback_data": f"{action}:{sid}"}] for label, action in buttons]
+    result = say(text, reply_markup=json.dumps({"inline_keyboard": kb}))
+    if result and result.get("ok"):
+        item = {
+            "mid": result["result"]["message_id"],
+            "text": text,
+            "created": time.time(),
+            "generation": generation,
+            "limits": limits,
+            "field": field,
+            "value": value,
+        }
+        with pend_lock:
+            if generation != proposal_generation:
+                edit(item, "CANCELLED. Open /setup again.")
+                return None
+            setup_views[sid] = item
+        return sid
+    return None
+
+
+def send_setup_menu():
+    limits = settings.read()
+    return register_setup_view(
+        "Trading setup\n\n"
+        f"Maximum active trades: {limits['max_open_trades']}\n"
+        f"Maximum investment per trade: {limits['max_position_usdt']} USDT (including fee reserve)\n\n"
+        "The investment is a cap; available funds, risk sizing and exchange rules can reduce it. "
+        "Different pairs may run concurrently; duplicate pairs and unresolved positions block entry.\n"
+        "Normal entries retain 1% risk sizing and the 3 USDT daily risk budget. "
+        "Every buy requires Telegram approval. Choose what to change:",
+        [("Change max trades", "ST"), ("Change max investment", "SI"), ("Cancel", "SX")],
+        limits=limits,
+    )
+
+
+def handle_setup_value(text):
+    sid = state.get("setup_id")
+    item = setup_views.get(sid)
+    if (
+        not item
+        or item["generation"] != proposal_generation
+        or time.time() - item["created"] > CHECK_TTL
+    ):
+        state.clear()
+        say("Setup expired. Send /setup again.")
+        return
+    field = state["field"]
+    try:
+        value = settings.parse_value(field, text)
+    except ValueError as error:
+        say(str(error) + " /cancel to stop.")
+        return
+    state.clear()
+    setup_views.pop(sid, None)
+    edit(item, "Value entered. Review the confirmation below.")
+    limits = {**item["limits"], field: value}
+    register_setup_view(
+        "Confirm trading limits\n\n"
+        f"Maximum active trades: {limits['max_open_trades']}\n"
+        f"Investment cap per trade: {limits['max_position_usdt']} USDT including fee reserve\n"
+        f"Combined allocation ceiling: {em.D(limits['max_position_usdt']) * limits['max_open_trades']:f} USDT, subject to funds/risk checks.\n\n"
+        "Applies to new entries. Existing positions and protective OCOs stay in place. "
+        "Pending proposals and untriggered watches will require fresh approval. "
+        "Confirm to save these account settings.",
+        [("Confirm change", "SA"), ("Cancel", "SX")],
+        limits=item["limits"],
+        field=field,
+        value=value,
+    )
+
+
+def invalidate_for_settings_change():
+    global proposal_generation
+    with pend_lock:
+        proposal_generation += 1
+        items = [
+            *pending.values(),
+            *checks.values(),
+            *discovery_views.values(),
+            *setup_views.values(),
+        ]
+        pending.clear()
+        checks.clear()
+        discovery_views.clear()
+        setup_views.clear()
+        state.clear()
+    for item in items:
+        edit(item, "SETTINGS CHANGED. Request a fresh selection/proposal before approval.")
+    for timer in list(recheck_timers):
+        timer.cancel()
+    recheck_timers.clear()
+
+
+def handle_setup_callback(cb, action, sid):
+    item = setup_views.get(sid)
+
+    def ack(text):
+        tg("answerCallbackQuery", callback_query_id=cb["id"], text=text)
+
+    if not item:
+        clear_callback_keyboard(cb)
+        ack("Expired or canceled. Open /setup again.")
+        return
+    if cb.get("message", {}).get("message_id") != item["mid"]:
+        clear_callback_keyboard(cb)
+        ack("Use the latest setup message.")
+        return
+    if item["generation"] != proposal_generation or time.time() - item["created"] > CHECK_TTL:
+        setup_views.pop(sid, None)
+        edit(item, "EXPIRED. Open /setup again.")
+        ack("Expired.")
+        return
+    if action == "SX":
+        setup_views.pop(sid, None)
+        if state.get("setup_id") == sid:
+            state.clear()
+        edit(item, "CANCELLED. No setting changed.")
+        ack("Cancelled.")
+    elif action in ("ST", "SI") and item["field"] is None:
+        field = "max_open_trades" if action == "ST" else "max_position_usdt"
+        state.clear()
+        state.update(step="setup_value", setup_id=sid, field=field, t=time.time())
+        ack("Enter the new value in chat.")
+        say(
+            "Send the maximum number of active trades (whole number, 1–100). /cancel to stop."
+            if action == "ST"
+            else "Send the maximum investment per trade in USDT, for example 25 or 25.50. "
+            "This includes the buy fee reserve. /cancel to stop."
+        )
+    elif action == "SA" and item["field"] is not None:
+        setup_views.pop(sid, None)  # A confirmation is single use even if saving fails.
+        ack("Saving settings...")
+        try:
+            with em.operation_lock():
+                saved = settings.update(
+                    item["field"],
+                    item["value"],
+                    expected_revision=item["limits"]["revision"],
+                    actor=CHAT_ID,
+                )
+                if saved["revision"] != item["limits"]["revision"]:
+                    canceled = ta.cancel_entry_watches()
+                else:
+                    canceled = 0
+            if saved["revision"] != item["limits"]["revision"]:
+                invalidate_for_settings_change()
+        except Exception as error:
+            edit(
+                item,
+                "Change could not be confirmed. Open /setup to check current settings. "
+                + safe(error),
+            )
+            return
+        edit(item, "SAVED. Limits apply now and remain available after restart.")
+        say(
+            f"Settings saved\nMaximum active trades: {saved['max_open_trades']}\n"
+            f"Maximum investment per trade: {saved['max_position_usdt']} USDT\n"
+            f"Untriggered watches canceled: {canceled}. Existing positions remain protected.\n"
+            "Every new buy still requires approval. Use /setup to view or change limits."
+        )
+    else:
+        ack("Choose a valid setup option.")
 
 
 # ---------- read-only public discovery ----------
@@ -1173,6 +1383,8 @@ def scan_once():
     sc.log.info("Scan candidates (%s): %s", len(cands), names)
     results, cards, sent = [], [], 0
     for sym, sig in cands.items():
+        if em.STOP.is_set():
+            break
         delivered = False
         status, reason = "Blocked", ""
         badge = "🔴 Proposal status: BLOCKED — no actionable approval"
@@ -1214,7 +1426,7 @@ def scan_once():
                 f"\nEntry: {sc.fmt(sig['entry'])} | SL: {sc.fmt(sig['stop'])}"
                 f"\nTP1: {sc.fmt(sig['t1'])} | TP2: {sc.fmt(sig['t2'])}"
                 "\nA fresh executable proposal and approval are required before buying. "
-                "One active/unresolved bot trade maximum remains enforced."
+                "Configured active-trade limits remain enforced."
             )
         except (ValueError, KeyError, TypeError):
             result += "\nCandidate levels unavailable: invalid or incomplete scanner signal."
@@ -1264,6 +1476,8 @@ def startup_text():
         f"{BRANDING}\n\n{startup_status()}\n\n"
         "/discover — browse High Volume and Top Gainers\n"
         "/check COIN — review a trading setup\n"
+        "/setup — change trading limits\n"
+        "/pnl — today's completed trade results\n"
         "/status — view positions and protection\n"
         "/help — view all commands"
     )
@@ -1275,6 +1489,8 @@ def _run_main():
         raise SystemExit("TELEGRAM_TOKEN and TELEGRAM_CHAT_ID must be set in .env")
     print("[4/5] Reconciling saved positions...", flush=True)
     unresolved = em.recover_trades()
+    if em.STOP.is_set():
+        return
     active = sum(record["state"] != "closed" for record in unresolved)
     print(
         f"[4/5] Reconciliation pass complete | {active} active/unresolved record(s); "
@@ -1298,9 +1514,14 @@ def _run_main():
     print(
         " Manual override: liquidity/strategy, 1% sizing and daily-loss gate bypassed after approval"
     )
-    print(
-        f" All entries: max ${ta.MAX_POSITION_USDT} per trade | max {ta.MAX_OPEN_TRADES} active/unresolved"
-    )
+    try:
+        limits = settings.read()
+        print(
+            f" All entries: max {limits['max_position_usdt']} USDT per trade | "
+            f"max {limits['max_open_trades']} active trades | change with /setup"
+        )
+    except Exception:
+        print(" Trading settings unavailable; new entries blocked. Recovery monitoring continues.")
     print(
         f" Automatic scanning: {'ON' if AUTO_SCAN else 'OFF'} | Telegram approval required for every new buy"
     )
@@ -1321,12 +1542,12 @@ def _run_main():
 
     print("[5/5] Telegram connection verified.", flush=True)
     say(startup_text())
-    threading.Thread(target=em.result_notice_loop, daemon=True).start()
+    start_managed_worker(em.result_notice_loop)
     if AUTO_SCAN:
-        threading.Thread(target=scanner_loop, daemon=True).start()
+        start_managed_worker(scanner_loop)
     print(startup_status(), flush=True)
 
-    while True:
+    while not em.STOP.is_set():
         try:
             r = tg(
                 "getUpdates",
@@ -1334,11 +1555,15 @@ def _run_main():
                 offset=offset,
                 allowed_updates=json.dumps(["callback_query", "message"]),
             )
+            if em.STOP.is_set():
+                break
             if not r.get("ok"):
                 sc.log.warning(f"Telegram: {r.get('description')}")
-                time.sleep(10)
+                em.STOP.wait(10)
                 continue
             for u in r.get("result", []):
+                if em.STOP.is_set():
+                    break
                 offset = u["update_id"] + 1
                 if "callback_query" in u:
                     handle_callback(u["callback_query"])
@@ -1346,26 +1571,57 @@ def _run_main():
                     handle_message(u["message"])
             expire_pending()
         except KeyboardInterrupt:
-            print("\nStopped. Any open orders stay active on Binance.")
+            request_shutdown()
             break
         except Exception as e:
             sc.log.warning(f"Loop error: {safe(e)}")
-            time.sleep(5)
+            em.STOP.wait(5)
+
+
+def start_managed_worker(target):
+    def run():
+        try:
+            target()
+        finally:
+            workers.discard(threading.current_thread())
+
+    worker = threading.Thread(target=run, daemon=False)
+    workers.add(worker)
+    try:
+        worker.start()
+    except Exception:
+        workers.discard(worker)
+        raise
+    return worker
+
+
+def request_shutdown():
+    if not em.STOP.is_set():
+        em.STOP.set()
+        print(
+            "\nPlease wait while I finish saving the current session details...\n"
+            "Waiting for pending operations. Existing Binance orders remain active.",
+            flush=True,
+        )
 
 
 def main():
     if not TOKEN or not CHAT_ID:
         raise SystemExit("Telegram configuration missing")
-    print(BRANDING, flush=True)
-    print(f"Environment: {mode_label()}", flush=True)
-    print("[1/5] Scanner module ready; initial market scan pending.", flush=True)
-    print("[2/5] Verifying Spot exchange connection...", flush=True)
-    em.initialize()
-    print("[2/5] Spot exchange connection verified.", flush=True)
     em.STOP.clear()
-    print("[3/5] Acquiring account instance lock...", flush=True)
-    lock = em.instance_lock()
+    restore_signals = shutdown_control.install(request_shutdown)
+    lock = None
     try:
+        print(BRANDING, flush=True)
+        print(f"Environment: {mode_label()}", flush=True)
+        print("[1/5] Scanner module ready; initial market scan pending.", flush=True)
+        print("[2/5] Verifying Spot exchange connection...", flush=True)
+        em.initialize()
+        if em.STOP.is_set():
+            return
+        print("[2/5] Spot exchange connection verified.", flush=True)
+        print("[3/5] Acquiring account instance lock...", flush=True)
+        lock = em.instance_lock()
         print("[3/5] Instance lock acquired.", flush=True)
         _run_main()
     finally:
@@ -1376,7 +1632,14 @@ def main():
         for worker in list(workers):
             worker.join()
         workers.clear()
-        lock.unlink()
+        if lock is not None:
+            lock.unlink()
+        restore_signals()
+        print(
+            "Session records preserved. Assistant stopped; Binance orders remain active.\n"
+            "Monitoring resumes after restart.",
+            flush=True,
+        )
 
 
 if __name__ == "__main__":
