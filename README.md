@@ -210,3 +210,24 @@ public time service blocks authenticated initialization. No API key rotation is
 needed solely to correct a timestamp error. Persistent failures still require
 network/latency investigation; do not bypass timestamp checks or enlarge the
 request window to hide them.
+
+## Double-click LIVE launcher on Windows
+
+After installing dependencies and configuring this checkout's local `.env`,
+double-click **Start_Live_Bot.bat** in the project folder. Explorer opens it in
+Command Prompt. It switches to its own directory (including paths with spaces),
+activates `.venv\Scripts\activate.bat`, clears `PYTHON_DOTENV_DISABLED`, sets
+`USE_TESTNET=false`, `ALLOW_LIVE_TRADING=true`, and `AUTO_SCAN=true`, then starts
+`telegram_assistant.py` with unbuffered output. No keys/tokens are embedded or
+printed, and the script does not install packages, pull Git changes or merge.
+
+This is explicitly a real-money launcher. Telegram approval is still required for
+new buys; startup recovery can manage existing journaled positions. Keep the
+window open while running and use Ctrl+C to stop. Existing exchange orders remain
+at Binance. The window pauses after normal exit or startup failure so the result
+can be read. Missing `.venv`, bot file, or `.env` produces an actionable error
+instead of falling back to a different Python installation or checkout.
+
+Stop the old instance before launching. The account process lock still prevents
+duplicate instances. For desktop access, create a shortcut pointing to this batch
+file; do not move the batch file away from its checkout.

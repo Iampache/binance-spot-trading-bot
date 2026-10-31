@@ -199,3 +199,23 @@ operations were simulated with network blocking; no live trade was executed.
 Native Windows validation of this new manual profile remains pending CI/user
 verification. Allowing human overrides increases accepted trading risk and is
 not evidence that low-liquidity execution or losses are controlled.
+
+## Windows double-click LIVE launcher
+
+`Start_Live_Bot.bat` starts from its own checkout, activates its Windows virtual
+environment, restores dotenv loading, explicitly selects LIVE/auto-scan mode and
+uses that environment's Python. It preserves the bot's exit code and keeps the
+console open for failures. Git attributes enforce CRLF checkout for batch files.
+
+Three native Windows CMD tests use a fresh temporary virtual environment and a
+harmless replacement `telegram_assistant.py`; they never import or launch the
+real bot. They verify directory-with-spaces handling from a different working
+directory, exact effective mode variables, dotenv activation, interpreter and
+virtual-environment selection, exit-code preservation and missing-environment/
+configuration failures. Child processes receive only non-secret OS bootstrap
+variables and synthetic mode settings, with no production credentials.
+
+Local result: **171 passed, 3 skipped**, with three upstream warnings. These three
+skips are explicitly Windows-only CMD execution tests, unsupported on the Linux
+workspace. They run in the existing Windows CI matrix; native results remain
+unverified here. Lint, formatting, Bandit, dependency and whitespace checks pass.
