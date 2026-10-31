@@ -70,10 +70,13 @@ establish exchange-side correctness.
    symbol's two-leg minimum. Partial fills, commissions, price falls and precision
    can also produce unsellable residuals. Dust remains tracked and blocks entry;
    there is no automated dust conversion or journal-reset escape hatch.
-6. **Third-asset commissions are unsupported.** Known BNB discounts cause a skip.
-   Unexpected third-asset fees block accounting until a separate, verified
-   valuation/reconciliation workflow is implemented. Fee schedules changing after
-   preflight can exceed the reserved commission amount.
+6. **BNB valuation has defined limits.** BNB accounting is opt-in and uses actual
+   charged quantities with a persisted preceding BNBUSDT trade-price reference
+   within one second of the execution. This is not necessarily Binance's internal
+   conversion price. Missing evidence blocks completed accounting/new entries;
+   it does not delay protection or exits. Other third-asset fees and BNBUSDT's
+   fee-on-base inventory case remain unsupported. Fee schedules changing after
+   preflight can still exceed the reserved commission amount.
 7. **Coordination has a local scope.** Dedicated persistent storage and a single
    coordinated account are required. Filesystem locks do not cover another host,
    another state-directory copy, manual trades, transfers or other bots. Complete
@@ -123,3 +126,25 @@ checks and price/approval bounds remain enforced in both modes. Manual overrides
 can increase losses beyond the former account-risk gates, and they do not solve
 slippage, thin-book execution, gaps or exchange outages. All development checks
 remain offline; no real trade or account connection was used for this change.
+
+
+## BNB accounting and scan visibility follow-up
+
+The old enabled-discount refusal remains the default unless ALLOW_BNB_FEES=true.
+Opt-in support applies Binance-reported discount metadata only to standard fees,
+keeps undiscounted maker/taker fee reserves, and journals actual fee asset/quantity.
+BNB reference prices use authenticated fill timestamps and public aggregate-trade
+history, with source ID/time/price persisted rather than current-price guessing.
+Historical evidence is preserved during refresh and validated when closed records
+are loaded. Missing valuation blocks new entries after liquidation; it must never
+block ownership reconciliation, protective OCO submission or emergency liquidation.
+
+Candidate summaries now name every candidate and its outcome, including per-symbol
+errors, cooldown and message-delivery failures. Failed delivery no longer counts
+as a sent proposal or starts a four-hour cooldown. Exception metadata remains
+sanitized, and these notifications do not create approvals or bypass filters.
+
+The implementation and new scenarios were tested offline only. Native Windows,
+actual BNB debits, historical endpoint availability and live Telegram delivery
+remain unverified by the implementing agent. The user must review the documented
+valuation convention before relying on USDT-equivalent daily P&L as exact cash P&L.

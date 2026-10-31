@@ -28,6 +28,7 @@ TRADES_DIR = None
 CONTEXT = None
 USE_TESTNET = os.getenv("USE_TESTNET", "true").lower() == "true"
 ALLOW_LIVE = os.getenv("ALLOW_LIVE_TRADING", "false").lower() == "true"
+ALLOW_BNB_FEES = os.getenv("ALLOW_BNB_FEES", "false").strip().lower() == "true"
 MAX_DAILY_LOSS_USD = safety.MAX_DAILY_LOSS_USD
 POLL_SECONDS = 5
 client = None
@@ -374,27 +375,51 @@ def validate_qty(qty, f, reference_price, *, market=False, entry=False):
         )
 
 
-def commission_rate(symbol):
+def commission_schedule(symbol):
     info = get_client().v3_get_account_commission(symbol=symbol)
     if info.get("symbol") != symbol:
         raise ValueError("Commission symbol mismatch")
-    # Ignore discounts; reserve undiscounted taker+buyer/seller, including tax/special.
+    # Reserve undiscounted entry/stop taker fees and target maker fees, including
+    # tax/special components. A BNB shortfall must not invalidate the reserve.
     discount = info.get("discount", {})
-    if discount.get("enabledForAccount") and discount.get("enabledForSymbol"):
+    enabled = discount.get("enabledForAccount") is True and discount.get("enabledForSymbol") is True
+    if enabled and not ALLOW_BNB_FEES:
+        raise ValueError("BNB-discount fees require ALLOW_BNB_FEES=true in this checkout's .env")
+    multiplier = D(discount.get("discount", "1")) if enabled else D(1)
+    if enabled and (discount.get("discountAsset") != "BNB" or not 0 <= multiplier <= 1):
+        raise ValueError("Unsupported or invalid commission discount metadata")
+    if enabled and symbol == "BNBUSDT":
         raise ValueError(
-            "BNB-discount commission valuation unsupported; skip until disabled by account owner"
+            "BNB fee payment on BNBUSDT needs a separate base-fee inventory reserve; skip trade"
         )
-    rates = []
-    for side in ("buyer", "seller"):
-        rate = sum(
-            D(info[name]["taker"]) + D(info[name][side])
+    rates, discounted = [], []
+    for role, side in (("taker", "buyer"), ("taker", "seller"), ("maker", "seller")):
+        components = [
+            D(info[name][role]) + D(info[name][side])
             for name in ("standardCommission", "taxCommission", "specialCommission")
-        )
-        rates.append(rate)
+        ]
+        if any(rate < 0 for rate in components):
+            raise ValueError("Invalid negative commission schedule")
+        rates.append(sum(components))
+        discounted.append(components[0] * multiplier + sum(components[1:]))
     rate = max(rates)
     if not 0 <= rate < D(".05"):
         raise ValueError("Invalid/unsupported commission schedule")
-    return rate
+    if enabled:
+        reference = get_client().get_symbol_ticker(symbol="BNBUSDT")
+        if reference.get("symbol") != "BNBUSDT" or D(reference["price"]) <= 0:
+            raise ValueError("BNB fee conversion market unavailable")
+    return {
+        "reserve_rate": rate,
+        "discounted_rate": max(discounted),
+        "bnb_discount": enabled,
+        "discount_multiplier": multiplier,
+        "bnb_fee_support": ALLOW_BNB_FEES,
+    }
+
+
+def commission_rate(symbol):
+    return commission_schedule(symbol)["reserve_rate"]
 
 
 def validate_price(price, f, side):
@@ -581,6 +606,12 @@ def refresh_order(rec, item):
     )
     save_trade(rec)
     rows = trades_for(result, rec["symbol"])
+    # Retain already-recorded historical reference evidence across read retries.
+    previous = {row["id"]: row for row in item["trades"]}
+    for row in rows:
+        old = previous.get(row["id"], {})
+        if old.get("fee_valuation") and all(old.get(key) == value for key, value in row.items()):
+            row["fee_valuation"] = old["fee_valuation"]
     item.update(trades=rows, evidence_pending=False)
     save_trade(rec)
     return item
@@ -804,6 +835,78 @@ def refresh(rec):
     save_trade(rec)
 
 
+def bnb_fee_reference(fill_time):
+    """Documented valuation reference, not Binance's private conversion price."""
+    rows = get_client().get_aggregate_trades(
+        symbol="BNBUSDT", startTime=fill_time - 1000, endTime=fill_time, limit=1000
+    )
+    if not rows or len(rows) >= 1000:
+        raise ex.Uncertain("BNB fee reference history missing or truncated")
+    seen = set()
+    for row in rows:
+        if (
+            type(row.get("a")) is not int
+            or row["a"] in seen
+            or type(row.get("T")) is not int
+            or not fill_time - 1000 <= row["T"] <= fill_time
+            or D(row["p"]) <= 0
+        ):
+            raise ex.Uncertain("Invalid BNB fee reference history")
+        seen.add(row["a"])
+    last = max(rows, key=lambda row: (row["T"], row["a"]))
+    return {
+        "method": "last_aggregate_trade_at_or_before_fill",
+        "symbol": "BNBUSDT",
+        "aggregate_id": last["a"],
+        "time": last["T"],
+        "fill_time": fill_time,
+        "price": fmt(last["p"]),
+    }
+
+
+def attach_fee_valuations(rec):
+    """After exits, persist reference evidence; missing USD valuation never delays protection."""
+    references = {}
+    for order in rec["orders"]:
+        for row in order["trades"]:
+            if (
+                not D(row["commission"])
+                or row["commissionAsset"] in ("USDT", rec["symbol"][:-4])
+                or row.get("fee_valuation")
+            ):
+                continue
+            if row["commissionAsset"] != "BNB" or not (
+                ALLOW_BNB_FEES or rec["plan"].get("bnb_fee_support") == "True"
+            ):
+                raise ex.Uncertain("Third-asset commission needs enabled, supported USDT valuation")
+            timestamp = int(row["time"])
+            if timestamp not in references:
+                references[timestamp] = bnb_fee_reference(timestamp)
+            row["fee_valuation"] = dict(references[timestamp])
+            save_trade(rec)
+
+
+def fee_in_quote(row, base):
+    fee = D(row["commission"])
+    if not fee or row["commissionAsset"] == base:
+        return D(0)  # Base commissions are accounted in inventory and cost allocation.
+    if row["commissionAsset"] == "USDT":
+        return fee
+    reference = row.get("fee_valuation", {})
+    if (
+        row["commissionAsset"] != "BNB"
+        or reference.get("symbol") != "BNBUSDT"
+        or reference.get("method") != "last_aggregate_trade_at_or_before_fill"
+        or reference.get("fill_time") != int(row["time"])
+        or type(reference.get("aggregate_id")) is not int
+        or type(reference.get("time")) is not int
+        or not int(row["time"]) - 1000 <= reference["time"] <= int(row["time"])
+        or D(reference.get("price", 0)) <= 0
+    ):
+        raise ex.Uncertain("Third-asset commission reference missing or invalid")
+    return fee * D(reference["price"])
+
+
 def realized_events(rec):
     buys = list(executions(rec, "BUY"))
     base = rec["symbol"][:-4]
@@ -813,21 +916,13 @@ def realized_events(rec):
     )
     cost = D(0)
     for t in buys:
-        if D(t["commission"]) and t["commissionAsset"] not in (base, "USDT"):
-            raise ex.Uncertain("Third-asset buy commission needs verified USDT valuation")
-        cost += D(t["quoteQty"]) + (D(t["commission"]) if t["commissionAsset"] == "USDT" else 0)
+        cost += D(t["quoteQty"]) + fee_in_quote(t, base)
     events = []
     for t in executions(rec, "SELL"):
-        if D(t["commission"]) and t["commissionAsset"] not in (base, "USDT"):
-            raise ex.Uncertain("Third-asset sell commission needs verified USDT valuation")
         if bought <= 0:
             raise ex.OwnershipError("No verified buy cost basis")
         units = D(t["qty"]) + (D(t["commission"]) if t["commissionAsset"] == base else 0)
-        pnl = (
-            D(t["quoteQty"])
-            - (D(t["commission"]) if t["commissionAsset"] == "USDT" else 0)
-            - cost * units / bought
-        )
+        pnl = D(t["quoteQty"]) - fee_in_quote(t, base) - cost * units / bought
         events.append({"id": t["id"], "time": t["time"], "pnl": fmt(pnl)})
     return events
 
@@ -853,7 +948,12 @@ def finish_if_flat(rec, f):
     if left != 0:
         rec["residual_qty"] = fmt(left)
         return False
+    attach_fee_valuations(rec)
     rec["realized_events"] = realized_events(rec)
+    if any(row.get("fee_valuation") for order in rec["orders"] for row in order["trades"]):
+        rec["pnl_valuation"] = (
+            "Actual BNB commissions valued at preceding BNBUSDT trade reference (within 1 second)"
+        )
     rec.update(state="closed", accounted=True, residual_qty="0")
     save_trade(rec)
     return True

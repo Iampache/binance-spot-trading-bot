@@ -49,6 +49,9 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 APPROVAL_TTL = int(os.getenv("APPROVAL_TTL_SECONDS", "300"))
 CHECK_TTL = int(os.getenv("CHECK_TTL_SECONDS", "600"))
 AUTO_SCAN = os.getenv("AUTO_SCAN", "true").lower() == "true"
+SCAN_CANDIDATE_NOTIFICATIONS = (
+    os.getenv("SCAN_CANDIDATE_NOTIFICATIONS", "true").strip().lower() == "true"
+)
 API = f"https://api.telegram.org/bot{TOKEN}"
 
 pending = {}  # proposal id -> dict
@@ -122,6 +125,12 @@ def proposal_text(sig, p, note):
     ]
     if note:
         lines.append(note)
+    if p.get("bnb_discount"):
+        reduction = (1 - em.D(p["bnb_discount_multiplier"])) * 100
+        lines += [
+            f"BNB standard-fee reduction reported by Binance: {reduction:.2f}% (subject to available BNB).",
+            "Tax/special fees are not discounted. Sizing reserves full fees for fallback; actual fill fees determine P&L.",
+        ]
     if p.get("manual_override") is True:
         lines += [
             "",
@@ -154,14 +163,14 @@ def send_proposal(sig, plan, note):
     r = say(text, reply_markup=json.dumps(kb))
     if not r.get("ok"):
         sc.log.warning(f"Could not send proposal: {r.get('description')}")
-        return
+        return False
     with pend_lock:
         if generation != proposal_generation:
             edit(
                 {"mid": r["result"]["message_id"], "text": text},
                 "CANCELLED. No approval available.",
             )
-            return
+            return False
         pending[pid] = dict(
             sig=sig,
             plan=plan,
@@ -169,6 +178,7 @@ def send_proposal(sig, plan, note):
             mid=r["result"]["message_id"],
             text=text,
         )
+    return True
 
 
 def expire_pending():
@@ -555,23 +565,53 @@ def handle_message(msg):
 
 
 # ---------- scanner thread ----------
+def scan_once():
+    cands, note = ta.scan_candidates()
+    names = ", ".join(cands) or "none"
+    sc.log.info("Scan candidates (%s): %s", len(cands), names)
+    results, sent = [], 0
+    for sym, sig in cands.items():
+        remaining = sc.COOLDOWN_SECONDS - (time.time() - sc.last_alert.get(sym, 0))
+        if remaining > 0:
+            result = f"{sym}: cooldown, {int(remaining)} seconds remaining"
+        else:
+            try:
+                plan = ta.build_plan(sig)
+                if send_proposal(sig, plan, note):
+                    sc.last_alert[sym] = time.time()
+                    sent += 1
+                    result = f"{sym}: proposal sent; awaiting your approval"
+                else:
+                    result = f"{sym}: proposal not delivered or canceled; no approval available"
+            except ValueError as error:
+                result = f"{sym}: blocked — {safety.redact(str(error))}"
+            except Exception as error:
+                result = f"{sym}: blocked — {safe(error)}"
+        results.append(result)
+        sc.log.info("%s", result)
+    sc.log.info(
+        "Scan done: %s candidate(s) [%s], %s proposal(s) sent. %s", len(cands), names, sent, note
+    )
+    if cands and SCAN_CANDIDATE_NOTIFICATIONS:
+        lines = [f"SCAN RESULTS [{mode_label()}]", "Candidates: " + names, *results, note]
+        chunk = ""
+        for line in lines:
+            # Bound Telegram messages, retaining every candidate/reason across chunks.
+            for start in range(0, len(line) or 1, 3000):
+                piece = line[start : start + 3000]
+                if len(chunk) + len(piece) + 1 > 3500:
+                    say(chunk)
+                    chunk = ""
+                chunk += piece + "\n"
+        if chunk:
+            say(chunk.rstrip())
+    return results
+
+
 def scanner_loop():
     while not em.STOP.is_set():
         try:
-            cands, note = ta.scan_candidates()
-            sent = 0
-            for sym, sig in cands.items():
-                if time.time() - sc.last_alert.get(sym, 0) < sc.COOLDOWN_SECONDS:
-                    continue
-                try:
-                    plan = ta.build_plan(sig)
-                except ValueError as e:
-                    sc.log.info("%s skipped: %s", sym, safety.redact(str(e)))
-                    continue
-                sc.last_alert[sym] = time.time()
-                send_proposal(sig, plan, note)
-                sent += 1
-            sc.log.info(f"Scan done: {len(cands)} candidate(s), {sent} proposal(s) sent. {note}")
+            scan_once()
         except Exception as e:
             sc.log.warning(f"Scan error: {safe(e)}")
         em.STOP.wait(900 - (time.time() % 900) + 10)
@@ -589,6 +629,9 @@ def _run_main():
             worker.start()
     print("=" * 60)
     print(f" Telegram Trade Assistant - {mode_label()}")
+    print(
+        f" BNB fee accounting: {'ON' if em.ALLOW_BNB_FEES else 'OFF'} | candidate notifications: {'ON' if SCAN_CANDIDATE_NOTIFICATIONS else 'OFF'}"
+    )
     print(
         f" Auto risk {sc.RISK_PCT}% | auto daily loss limit ${em.MAX_DAILY_LOSS_USD} | "
         f"auto minimum volume {sc.MIN_QUOTE_VOLUME:,.0f} USDT"

@@ -29,6 +29,7 @@ def offline(monkeypatch, tmp_path):
     monkeypatch.setattr(em, "BASE_DIR", tmp_path)
     monkeypatch.setattr(em, "USE_TESTNET", True)
     monkeypatch.setattr(em, "ALLOW_LIVE", False)
+    monkeypatch.setattr(em, "ALLOW_BNB_FEES", False)
     monkeypatch.setattr(em, "alert", lambda message: None)
     monkeypatch.setattr(em, "POLL_SECONDS", 0)
     em.STOP.clear()

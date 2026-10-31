@@ -22,8 +22,8 @@ class SpotSimulator:
         self.client._request_api = self.request
         self.uid = "12345"
         self.price = D("100")
-        self.free = {"USDT": D("500"), "FOO": D("0")}
-        self.locked = {"USDT": D("0"), "FOO": D("0")}
+        self.free = {"USDT": D("500"), "FOO": D("0"), "BNB": D(1)}
+        self.locked = {"USDT": D("0"), "FOO": D("0"), "BNB": D(0)}
         self.orders = {}
         self.lists = {}
         self.trades = []
@@ -38,6 +38,10 @@ class SpotSimulator:
         self.min_notional = "1"
         self.fee_rate = D(".001")
         self.fee_asset = "USDT"
+        self.bnb_price = D(600)
+        self.bnb_discount = False
+        self.discount_multiplier = D(".75")
+        self.bnb_history = []
         self.clock = int(time.time() * 1000)
         self.prewrite = lambda kind, data: None
         self.response_override = None
@@ -102,6 +106,16 @@ class SpotSimulator:
         quote = qty * price
         asset = self.fee_asset
         fee = (qty if asset == "FOO" else quote) * self.fee_rate
+        if asset == "BNB":
+            multiplier = self.discount_multiplier if self.bnb_discount else D(1)
+            fee = quote * self.fee_rate * multiplier / self.bnb_price
+            if self.free["BNB"] < fee:
+                asset, fee = "USDT", quote * self.fee_rate
+            else:
+                self.free["BNB"] -= fee
+                self.bnb_history.append(
+                    {"a": len(self.bnb_history) + 1, "T": self.clock, "p": str(self.bnb_price)}
+                )
         if order.get("orderListId"):
             item = self.lists[order["orderListId"]]
             self.locked["FOO"] -= qty
@@ -162,6 +176,8 @@ class SpotSimulator:
                     "priceChangePercent": "1",
                 }
             if path == "ticker/price":
+                if data.get("symbol") == "BNBUSDT":
+                    return {"symbol": "BNBUSDT", "price": str(self.bnb_price)}
                 return {"symbol": "FOOUSDT", "price": str(self.price)}
             if path == "ticker/bookTicker":
                 return {
@@ -179,6 +195,12 @@ class SpotSimulator:
             if path == "account/commission":
                 return {
                     "symbol": "FOOUSDT",
+                    "discount": {
+                        "enabledForAccount": self.bnb_discount,
+                        "enabledForSymbol": self.bnb_discount,
+                        "discountAsset": "BNB",
+                        "discount": str(self.discount_multiplier),
+                    },
                     **{
                         name: {
                             "maker": str(self.fee_rate if name == "standardCommission" else 0),
@@ -193,6 +215,12 @@ class SpotSimulator:
                         )
                     },
                 }
+            if path == "aggTrades":
+                return [
+                    copy.deepcopy(row)
+                    for row in self.bnb_history
+                    if data["startTime"] <= row["T"] <= data["endTime"]
+                ][: data["limit"]]
             if path == "openOrders":
                 return [
                     copy.deepcopy(o)

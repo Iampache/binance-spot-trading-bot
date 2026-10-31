@@ -104,6 +104,7 @@ def verify_sdk():
         "get_my_trades",
         "v3_get_account_commission",
         "get_server_time",
+        "get_aggregate_trades",
     ):
         if not callable(getattr(Client, method, None)):
             raise RuntimeError("Unsupported Binance SDK interface")

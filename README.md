@@ -180,13 +180,17 @@ reconciles ownership, journals cancellation, then unwinds each confirmed release
 leg before removing another stop. Cancel-and-sell cannot be atomic; a timeout,
 market halt, missing evidence or exchange minimum can leave residual exposure.
 
-Exact base/USDT commissions and exchange execution timestamps determine realized
-P&L. BNB-discount configurations are rejected before entry because this version
-cannot establish an exact USDT cost basis for third-asset fees. Unexpected
-third-asset fees quarantine the record; they are never treated as zero. Dust below
-lot/notional minimums remains explicitly tracked and blocks new entries until
-separately reconciled. Histories reaching the 1,000-fill response limit also block
-rather than silently truncating accounting.
+Actual fill commissions and execution timestamps determine the journal's realized
+P&L. Base/USDT commissions are accounted directly. Optional BNB fee accounting
+records the actual BNB charged and values it using the last BNBUSDT aggregate trade
+at or before the fill (no more than one second earlier). That exchange reference
+is persisted with the fill; it is a defined USDT-equivalent valuation, **not a
+claim to reproduce Binance's private fee-conversion price exactly**. Missing or
+invalid reference data blocks completion/new entries, but does not delay placing
+protective OCOs or unwinding confirmed inventory. Unsupported other fee assets
+remain unresolved instead of being treated as zero. Dust below lot/notional
+minimums and histories reaching the 1,000-fill response limit still block rather
+than silently truncating ownership or accounting evidence.
 
 See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the second review and remaining
 risks, and [TEST_RESULTS.md](TEST_RESULTS.md) for the regression mapping and results.
@@ -231,3 +235,38 @@ instead of falling back to a different Python installation or checkout.
 Stop the old instance before launching. The account process lock still prevents
 duplicate instances. For desktop access, create a shortcut pointing to this batch
 file; do not move the batch file away from its checkout.
+
+
+## Candidate visibility and BNB Spot fees
+
+Add these non-secret settings to this checkout's existing `.env` and restart:
+
+```dotenv
+ALLOW_BNB_FEES=true
+SCAN_CANDIDATE_NOTIFICATIONS=true
+```
+
+`ALLOW_BNB_FEES` defaults to false and enables the accounting support described
+above. It does not change Binance account settings or buy BNB. Keep the Binance
+Spot BNB fee-payment option enabled and sufficient BNB in the account if you want
+the exchange to apply its discount. The application reads the account/symbol
+commission endpoint: there is no hard-coded 25% discount or user-entered fee rate.
+Only standard commission receives the returned multiplier; tax/special components
+are not discounted. Sizing reserves the full undiscounted entry/stop taker and
+target maker rates so a BNB shortfall can fall back safely. Actual execution
+commissions, not the advertised estimate, determine journal accounting.
+
+A mixed BNB/USDT fallback across fills is supported. The active trade's BNB opt-in
+is journaled, so historical fee accounting can finish after restart even if the
+local flag later changes. Trading **BNBUSDT itself while BNB discounts are
+active remains blocked** pending a dedicated reserve for fees charged in the same
+base asset as the position. The bot will explain that edge case rather than risk
+selling unrelated BNB or incorrectly declaring inventory flat.
+
+`SCAN_CANDIDATE_NOTIFICATIONS` defaults to true. Every scan names all candidate
+symbols in the console and reports each outcome: proposal sent, cooldown,
+validation refusal, API failure or Telegram delivery failure. Nonempty scans also
+send Telegram summaries with these details; set the flag to false for console-only
+summaries. Only successfully registered proposals start their alert cooldown.
+A candidate is not an order, and a proposal still requires your approval. No
+symbol can be recovered from an old count-only log line without other records.

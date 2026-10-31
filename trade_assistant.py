@@ -115,7 +115,8 @@ def build_plan(sig):
     balance = em.D(c.get_asset_balance(asset="USDT")["free"])
     if balance <= 0:
         raise ValueError("No available USDT")
-    fee = em.commission_rate(symbol)
+    fee_schedule = em.commission_schedule(symbol)
+    fee = fee_schedule["reserve_rate"]
     daily_loss = em.todays_loss()
     remaining = em.D(3) - daily_loss
     # Manual approval accepts the chosen levels at the position cap, instead of
@@ -167,6 +168,10 @@ def build_plan(sig):
         "rest": rest,
         "step": f["step"],
         "fee_rate": fee,
+        "discounted_fee_rate": fee_schedule["discounted_rate"],
+        "bnb_discount": fee_schedule["bnb_discount"],
+        "bnb_discount_multiplier": fee_schedule["discount_multiplier"],
+        "bnb_fee_support": fee_schedule["bnb_fee_support"],
         "baseline_base": baseline,
         "cost": qty * price * (1 + fee),
         "balance": balance,

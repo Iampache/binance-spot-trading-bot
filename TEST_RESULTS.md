@@ -219,3 +219,28 @@ Local result: **171 passed, 3 skipped**, with three upstream warnings. These thr
 skips are explicitly Windows-only CMD execution tests, unsupported on the Linux
 workspace. They run in the existing Windows CI matrix; native results remain
 unverified here. Lint, formatting, Bandit, dependency and whitespace checks pass.
+
+
+## Candidate summaries and opt-in BNB commission support
+
+The complete local suite now reports **195 passed, 3 skipped**, with three upstream
+warnings. The three skips remain native Windows CMD launcher tests. Lint,
+formatting, Bandit, dependency and whitespace checks pass. No production
+credentials, live Binance account, real trade or Telegram messaging was used.
+
+New cases cover opt-in gating; account-reported 25% standard-fee reduction;
+undiscounted fallback reserves; undiscounted tax/special fees; higher maker target
+rates; actual charged BNB without double-discounting; BNB exhaustion and mixed
+USDT fallback; historical fill-time prices rather than reconciliation prices;
+missing/invalid/truncated/duplicate conversion history; durable references across
+restart; corrupted closed evidence; partial-buy liquidation despite missing fee
+valuation; and the explicitly unsupported BNBUSDT inventory edge case.
+
+Candidate tests cover one candidate with zero proposals, per-symbol exception
+isolation, cooldown explanations, real delivery result reporting, console-only
+configuration, bounded multi-message summaries and credential-safe diagnostics.
+The simulator uses the actual SDK adapter and realistic BNB quantity/balance
+changes. BNB valuation is a documented reference-price convention, not a claim of
+exact agreement with Binance's internal conversion. The implementation uses the
+public commission FAQ as the rate-semantics reference:
+https://github.com/binance/binance-spot-api-docs/blob/master/faqs/commission_faq.md
