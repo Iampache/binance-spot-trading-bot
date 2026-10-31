@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
-title TRBT - Live Spot
+title NEXVANT - Live Spot
 set "BOT_EXIT_CODE=1"
 
 rem Explorer opens this batch file in Command Prompt. Always use this checkout,
@@ -22,15 +22,15 @@ set "USE_TESTNET=false"
 set "ALLOW_LIVE_TRADING=true"
 set "AUTO_SCAN=true"
 
-echo Launching TRBT - Live Spot.
+echo Launching NEXVANT - Live Spot.
 echo Automatic scanning: enabled.
 echo Order approval: required in Telegram before every new buy.
-echo Leave this window open while TRBT is running. Press Ctrl+C to stop.
+echo Leave this window open while NEXVANT is running. Press Ctrl+C to stop.
 echo.
 ".venv\Scripts\python.exe" -u "telegram_assistant.py"
 set "BOT_EXIT_CODE=%ERRORLEVEL%"
 echo.
-echo TRBT stopped. Exit code: %BOT_EXIT_CODE%
+echo NEXVANT stopped. Exit code: %BOT_EXIT_CODE%
 goto finish
 
 :missing_venv

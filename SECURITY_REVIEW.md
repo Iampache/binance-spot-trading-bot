@@ -7,6 +7,36 @@ agent, plus independent automated static analysis using Bandit. It is **not an
 independent human or third-party audit**, and is not certification for live trading.
 No Binance account, production credential or Telegram integration was accessed.
 
+## NEXVANT presentation and owner-scoped navigation (v1.5.0)
+
+The rebrand centralizes public identity and bundles original static artwork.
+It does not rename runtime directories, change exchange client IDs, migrate
+journals or modify limits/strategy/approval logic. Images contain no account data
+or remote URLs. Welcome uploads use a fixed local PNG and fall back to text;
+routine trade messages retain their previous compact format.
+
+Home callback actions use a fixed whitelist routed through existing command
+handlers after sender/chat authorization. They cannot call buy/exit approval
+handlers or apply settings directly. The native command scope and Menu target
+only the configured owner chat. `/help` remains available without artwork or
+successful cosmetic registration. No new arbitrary URL or code-execution path
+is introduced by buttons or profile fields.
+
+On the operator's next runtime startup, the bot applies the requested display
+name, description/About, profile icon and command Menu through Bot API methods
+verified against public Telegram implementation. No real bot/account was accessed
+here. Cosmetic setup is best effort, has bounded request timeouts and respects
+shutdown between methods. Failures do not disable existing position monitoring.
+Only successful methods are cached locally, by public configuration/art and a
+bot/chat fingerprint. The token contributes to a SHA-256 fingerprint but is never
+stored or logged. Cache corruption merely reapplies cosmetics; it cannot override
+trading settings or ownership journals. Errors never stringify HTTP exception
+contents. Multipart files/timeout controls remain outside Bot API form fields.
+
+Profile updates affect the bot display identity, not its @username. Telegram's
+username policy and native chat theme remain outside the app. No rebrand implies
+an exchange endorsement, trained AI, audited strategy or promised performance.
+
 ## Confirmed Telegram position exits (v1.4.0)
 
 Position lists are local snapshots with immutable record IDs. Details refresh

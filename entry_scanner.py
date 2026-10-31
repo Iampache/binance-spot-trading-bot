@@ -1,5 +1,5 @@
 """
-Binance Entry Scanner - alerts only, NO trading, NO API key needed
+NEXVANT Entry Scanner - alerts only, NO trading, NO API key needed
 ------------------------------------------------------------------
 Scans liquid USDT pairs every 15 minutes (after each 15m candle closes) and alerts you
 on Telegram when a coin matches a pullback or breakout setup in an uptrend.

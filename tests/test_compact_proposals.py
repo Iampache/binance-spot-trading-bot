@@ -85,7 +85,7 @@ def test_details_invalid_authorization_has_no_side_effects(sim, monkeypatch, sta
     assert not messages and not sim.writes and not tg.trade_lock.locked()
 
 
-@pytest.mark.parametrize("command", ["/help", "/start"])
+@pytest.mark.parametrize("command", ["/help"])
 def test_help_lists_supported_commands_and_cancel_boundary(sim, monkeypatch, command):
     messages = []
     monkeypatch.setattr(tg, "say", lambda text, **kw: messages.append(text))
@@ -145,4 +145,4 @@ def test_identity_is_only_in_startup_not_routine_telegram_output(sim, monkeypatc
     ]
     for text in texts:
         assert "LIVE - REAL MONEY" not in text and "TESTNET" not in text
-        assert "Fazil" not in text and "Git:" not in text and "TRBT v" not in text
+        assert "Fazil" not in text and "Git:" not in text and "NEXVANT v" not in text

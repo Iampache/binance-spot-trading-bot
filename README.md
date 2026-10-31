@@ -1,6 +1,44 @@
-# Binance Spot Trading Bot by IamPache
+# NEXVANT
 
-A Python-based Binance Spot Trading Assistant with Telegram integration.
+Binance Spot trading assistant with Telegram control. Concept & developed by Fazil.
+
+## NEXVANT identity and Telegram dashboard (v1.5.0)
+
+The product is now **NEXVANT** across startup, command help, the Windows window
+title/launcher, scanner and documentation. `branding.py` holds the shared name,
+version, descriptions and artwork paths. Original midnight-navy/teal artwork is
+included in [assets/nexvant-welcome.png](assets/nexvant-welcome.png) and
+[assets/nexvant-avatar.png](assets/nexvant-avatar.png).
+
+After pulling and restarting the assistant, send `/start` for a banner dashboard:
+**Discover tokens**, **Check a coin**, **Positions**, **Today's P&L**, **Trading
+setup**, **Account status** and **All commands**. Buttons open the existing
+owner-authorized flows. `/help` retains the full guide; trade approvals and exit
+confirmations remain on their own proposal/position messages. Welcome artwork is
+sent at startup or on `/start`, not on every alert. Missing/rejected welcome images
+fall back to the same dashboard in text.
+
+On startup the app applies the **NEXVANT display name, description, About text,
+profile icon and native Telegram Menu commands** using Bot API methods. Command
+scope/menu target only the configured owner's chat. Successful operations are
+cached in the account's ignored `telegram_ui.json`, keyed by bot/chat/content and
+avatar digest, so unchanged profile photos are not repeatedly uploaded. Failed
+methods retry on a later startup. A cosmetic cache failure does not reset or
+override trading settings, journals, balances or approval state. Metadata/image
+failures are logged safely and do not stop position monitoring or `/help`.
+
+Telegram controls the surrounding chat layout, fonts, ads and client theme.
+Bot API profile methods do not change/reserve the bot's **@username**. A desired
+handle is managed separately through BotFather under Telegram's current rules
+and availability; the existing handle can keep working with the NEXVANT display
+name. If profile-photo/name methods are unavailable, use BotFather `/setname`
+with `NEXVANT` and `/setuserpic` with the supplied avatar. `/setdescription` and
+`/setabouttext` provide manual fallbacks for the shared descriptions.
+
+Source remains at the existing GitHub URL. Keep the same checkout, `.env`,
+launcher path and `runtime_state` across the rename: active trades recover from
+their existing account-scoped journals. The trading algorithm, caps, fees,
+ownership and approval requirements are unaffected by the rebrand.
 
 ## Active positions and early exit (v1.4.0)
 
@@ -499,18 +537,18 @@ use `/check COIN` and fresh approval when you can open another position.
 
 ## Presentation and version
 
-The scanner and assistant share a compact identity block: application version
-`1.0.0` (the first explicitly tracked display version), “Concept & Developed by
-Fazil,” and the GitHub repository URL. This display version is maintained in
-`branding.py`; it is not a claim that a Git release/tag has been published.
-Startup output, proposals, checks, scanner summaries and saved previews use this
-identity. Telegram uses a blue ticker marker and a separate status marker
+The scanner and assistant share the NEXVANT identity, current version, “Concept &
+Developed by Fazil,” and the GitHub repository URL from `branding.py`. The first
+tracked display version was 1.0.0; NEXVANT branding begins at 1.5.0. Display
+versions do not claim that a Git release/tag has been published. Full identity
+appears in startup; routine trading messages retain compact formatting without
+repeating the author/Git block. Telegram uses a blue ticker marker and a status marker
 (amber for waiting/cooldown, red for blocked/canceled). Text labels always explain
 the state. Telegram does not support arbitrary text colors. Markers are visual
 cues, not safety ratings or permission to trade. Order logic is unchanged.
 
-The assistant starts with a compact `TRBT | The Trading Bot for Binance Spot`
-sequence: scanner module readiness, verified exchange initialization, instance
+The assistant starts with the shared NEXVANT identity and a readiness sequence:
+scanner module readiness, verified exchange initialization, instance
 lock, recovery pass, then Telegram readiness. Each success line follows the
 corresponding operation; no artificial loading delays are added. Scanner module
 readiness does not mean the first market scan is finished, and a completed
@@ -556,12 +594,11 @@ a crash after Telegram accepts a message but before its acknowledgement is saved
 can produce a duplicate with the same trade reference. Newer execution snapshots
 supersede undelivered older ones. Reporting never retries or creates an order.
 
-Candidate Telegram alerts now use one compact card: “Potential Candidate Detected,”
+Candidate Telegram alerts use one compact card: “Potential Token Detected,”
 ticker, current status, rejection/cooldown reason, and Entry/SL/TP1/TP2 on separate
-lines. They retain the live/testnet label, preview-only notice and market warning,
-with `TRBT v1.0.0 | Fazil` as a short footer. The large branding/Git header and
-repeated candidate/status headings are omitted from these cards. Full identity
-remains in startup output and proposal Details. SHOW PR uses the same compact
+lines. They retain the preview-only notice and market warning. Repeated identity,
+mode banners and author/Git footers are omitted from routine cards. Full identity
+remains in startup output. SHOW PR uses the same compact
 candidate snapshot. Console diagnostics and execution policy are unchanged.
 
 ## Startup-only identity and execution narration
@@ -585,7 +622,7 @@ Pending, undelivered result messages adopt the new format on retry.
 
 Startup wording now uses **Live Spot** or **Spot Testnet** as the environment name,
 including the welcome, Windows window title and console initialization. The
-“REAL MONEY” / “fake money” wording is retired. The welcome reports TRBT online,
+“REAL MONEY” / “fake money” wording is retired. The welcome reports NEXVANT online,
 scan cadence, required order approval and the primary commands. Launcher/startup
 messages distinguish module readiness, verified exchange connection, account lock,
 position reconciliation and Telegram availability. No connection, scan, order or

@@ -1,5 +1,5 @@
 """
-Telegram Trade Assistant: scanner proposals + on-demand /check + manual entry
+NEXVANT: Telegram scanner proposals + on-demand /check + manual entry
 -------------------------------------------------------------------------------
 A) AUTOMATIC: scans Binance every 15 min and sends proposals with [Approve] [Reject] buttons.
 B) ON DEMAND: send /check (or /check_ticker or /check-ticker) -> it asks for the pair
@@ -47,10 +47,11 @@ import market_discovery as discovery
 import position_manager as positions
 import safety
 import shutdown_control
+import telegram_presentation as presentation
 import trade_assistant as ta
 import trade_reporting
 import trading_settings as settings
-from branding import BRANDING
+from branding import BOT_NAME, BRANDING, WELCOME_IMAGE
 from telegram_formatting import spot_url, ticker_link_options
 
 TOKEN = os.getenv("TELEGRAM_TOKEN", "")
@@ -77,8 +78,9 @@ pend_lock = threading.Lock()
 trade_lock = threading.Lock()  # serialize entry submission; monitor positions independently
 
 HELP = (
-    "TRBT | Commands\n\n"
-    "/help or /start — show this guide\n"
+    f"{BOT_NAME} | Commands\n\n"
+    "/start — open your dashboard\n"
+    "/help — show this guide\n"
     "/discover — browse High Volume / Top Gainers; New Listings needs a verified source\n"
     "/discover volume or /discover gainers — open a ranking directly\n"
     "/check or /scan — choose a coin\n"
@@ -111,9 +113,12 @@ def safe(e):
     return safety.safe_error(e)
 
 
-def tg(method, **params):
+def tg(method, *, files=None, _request_timeout=45, **params):
     try:
-        r = requests.post(f"{API}/{method}", data=params, timeout=45)
+        options = {}
+        if files is not None:
+            options["files"] = files
+        r = requests.post(f"{API}/{method}", data=params, timeout=_request_timeout, **options)
         result = r.json()
         if not result.get("ok"):
             return {
@@ -129,6 +134,46 @@ def say(text, **extra):
     if "entities" not in extra and "parse_mode" not in extra:
         extra = {**ticker_link_options(text), **extra}
     return tg("sendMessage", chat_id=CHAT_ID, text=text, **extra)
+
+
+def send_welcome(*, startup=False):
+    text = startup_text() if startup else presentation.welcome_text()
+    markup = json.dumps(presentation.home_keyboard())
+    if len(text.encode("utf-16-le")) // 2 <= 1024:
+        try:
+            with WELCOME_IMAGE.open("rb") as photo:
+                result = tg(
+                    "sendPhoto",
+                    chat_id=CHAT_ID,
+                    caption=text,
+                    reply_markup=markup,
+                    files={"photo": (WELCOME_IMAGE.name, photo, "image/png")},
+                )
+            if result and result.get("ok"):
+                return result
+        except OSError:
+            result = None
+    return say(text, reply_markup=markup)
+
+
+def configure_telegram_ui():
+    try:
+        failures = presentation.configure(
+            tg,
+            chat_id=CHAT_ID,
+            token=TOKEN,
+            cache_path=em.TRADES_DIR.parent / "telegram_ui.json",
+            atomic_write=em._atomic_write,
+            stopped=em.STOP.is_set,
+        )
+        if failures:
+            sc.log.warning(
+                "%s Telegram appearance pending: %s. Commands remain available through /help.",
+                BOT_NAME,
+                ", ".join(failures),
+            )
+    except Exception as error:
+        sc.log.warning("%s Telegram appearance unavailable: %s", BOT_NAME, safe(error))
 
 
 def edit(item, status):
@@ -852,6 +897,16 @@ def handle_callback(cb):
     if str(sender) != str(CHAT_ID) or str(chat) != str(CHAT_ID):
         return  # ignore strangers completely
     action, _, pid = cb.get("data", "").partition(":")
+    if action == "H":
+        command = presentation.HOME_ACTIONS.get(pid)
+        tg(
+            "answerCallbackQuery",
+            callback_query_id=cb["id"],
+            text="Opening your dashboard selection..." if command else "Unknown menu option.",
+        )
+        if command:
+            handle_message({"from": cb["from"], "chat": cb["message"]["chat"], "text": command})
+        return
     if action.startswith("P"):
         handle_position_callback(cb, action, pid)
         return
@@ -969,7 +1024,10 @@ def handle_message(msg):
             say(f"{em.status_report()}\nPending proposals: {len(pending)}")
         except Exception as e:
             say(f"Status error: {safe(e)}")
-    elif low.startswith(("/help", "/start")):
+    elif command == "/start":
+        state.clear()
+        send_welcome()
+    elif command == "/help":
         say(HELP)
     elif low.startswith("/cancel"):
         state.clear()
@@ -1861,7 +1919,11 @@ def _run_main():
         offset = r["result"][-1]["update_id"] + 1
 
     print("[5/5] Telegram connection verified.", flush=True)
-    say(startup_text())
+    print(f"[5/5] Applying {BOT_NAME} Telegram appearance...", flush=True)
+    configure_telegram_ui()
+    if em.STOP.is_set():
+        return
+    send_welcome(startup=True)
     start_managed_worker(em.result_notice_loop)
     if AUTO_SCAN:
         start_managed_worker(scanner_loop)

@@ -75,7 +75,7 @@ def confirm_view():
     return latest("confirm")
 
 
-@pytest.mark.parametrize("command", ["/position", "/positions", "/position@Trbt"])
+@pytest.mark.parametrize("command", ["/position", "/positions", "/position@NexvantBot"])
 def test_numbered_position_list_and_selected_detail_are_read_only(sim, ui, command):
     rec = buy()
     count = len(sim.writes)

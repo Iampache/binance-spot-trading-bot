@@ -24,7 +24,14 @@ def checks(monkeypatch):
 
 @pytest.mark.parametrize(
     "text",
-    ["/scan ZRO", "/check ZRO", "/scan zro", "/scan ZROUSDT", "/scan ZRO/USDT", "/scan@Trbt ZRO"],
+    [
+        "/scan ZRO",
+        "/check ZRO",
+        "/scan zro",
+        "/scan ZROUSDT",
+        "/scan ZRO/USDT",
+        "/scan@NexvantBot ZRO",
+    ],
 )
 def test_direct_ticker_resolves_usdt_once_and_does_not_trade(sim, checks, text):
     seen, replies = checks

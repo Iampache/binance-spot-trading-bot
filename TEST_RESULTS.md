@@ -1,6 +1,6 @@
 # Offline validation results
 
-Latest v1.4.0 result: **520 passed, 3 native Windows skips**, three upstream
+Latest v1.5.0 result: **538 passed, 3 native Windows skips**, three upstream
 deprecation warnings. Ruff lint/format, Bandit, dependency and whitespace checks
 pass. The sections below retain earlier run history; the latest regression
 details are recorded at the end.
@@ -319,7 +319,7 @@ approval, risk or account logic changed. Existing full suite: **252 passed,
 3 native Windows skips**, three upstream warnings. Ruff/format, Bandit, dependency
 and whitespace checks pass. No live account access or trades occurred.
 
-Startup presentation follow-up adds a five-step TRBT initialization display.
+Startup presentation follow-up adds a five-step NEXVANT initialization display.
 Completion messages follow exchange verification, lock acquisition, recovery and
 Telegram validation; scanner readiness is distinguished from scan completion.
 No fake delay or additional exchange request was added. Full suite remains
@@ -612,3 +612,25 @@ Telegram behavior above refers to synthetic transport/UI simulations with
 sockets and HTTP forbidden. No live Binance, Telegram service, production
 credentials or real trades were used. No profitability or live matching-engine
 validation is claimed; ambiguous/canceled/partial exits still require recovery.
+
+## NEXVANT identity and Telegram dashboard (v1.5.0)
+
+Nineteen presentation cases cover the `/start` photo dashboard, all seven real
+navigation flows without orders/settings changes, owner/chat authorization,
+unknown home actions preserving pending proposals, missing/rejected banner text
+fallbacks, owner-scoped native Menu and profile payloads, cached successful setup,
+failed-photo-only retry, bot-token namespace separation without storing the token,
+sanitized nonfatal startup failure, actual multipart transport/timeout separation,
+and bundled PNG/caption size constraints. The former `/start` full-guide case is
+replaced by the dashboard case; `/help` retains all command/boundary assertions.
+
+Visual inspection confirms matching original NEXVANT banner/avatar artwork. Public
+Telegram Bot API source was reviewed for name/description/short description,
+commands, chat Menu and static multipart profile-photo methods. No actual Telegram
+profile update or message was sent during development. Asset generation uses only
+the new public brand; no trading/account data was included.
+
+Full local suite: **538 passed, 3 native Windows skips**, three upstream warnings.
+Ruff lint/format, Bandit, dependency and whitespace checks pass. Financial lifecycle,
+recovery and approval assertions remain intact. Actual Telegram rendering/profile
+permissions and native Windows behavior remain separate runtime checks.

@@ -3,6 +3,20 @@
 Release notes describe code changes. Git commits provide the exact history.
 Account settings, keys and trade journals remain local and are ignored by Git.
 
+## 1.5.0 — 2026-10-31
+
+- Rename the product to NEXVANT across shared identity, help, scanner, launcher
+  and documentation, retaining existing runtime paths and recovery compatibility.
+- Add original NEXVANT welcome/banner artwork and a matching profile icon.
+- Add the `/start` photo dashboard with owner-authorized shortcuts to discovery,
+  coin checking, positions, P&L, setup, status and the full `/help` guide.
+- Register an owner-scoped native Telegram command Menu and update the bot's
+  display name, descriptions and avatar through verified Bot API methods.
+- Cache successful cosmetic setup by bot/chat/content so profile photos are not
+  duplicated on every restart; retry failures later and retain text fallbacks.
+- Document Telegram/BotFather control of @usernames and native client appearance.
+  Trading rules, ownership and approval semantics remain unchanged.
+
 ## 1.4.0 — 2026-10-31
 
 - Add `/position` / `/positions`: numbered bot positions with pagination,

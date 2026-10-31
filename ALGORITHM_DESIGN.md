@@ -1,6 +1,6 @@
-# TRBT algorithmic proposal design
+# NEXVANT algorithmic proposal design
 
-Display version: 1.4.0. Strategy identity: `atr-structure-v2`.
+Display version: 1.5.0. Strategy identity: `atr-structure-v2`.
 Reviewed public documentation on 31 October 2026 (Asia/Dubai).
 
 This is a deterministic rules-based proposal generator, not a trained AI model,
@@ -123,7 +123,7 @@ order. New closed-candle stop breaches invalidate such a watch before buying.
 
 ## Public references reviewed
 
-| Source | What was checked | Consequence for TRBT |
+| Source | What was checked | Consequence for NEXVANT |
 | --- | --- | --- |
 | [Binance Spot REST](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md) | Klines, server time, order book, IOC, OCO and OTOCO | Separate closed-bar analysis from live execution; retain existing verified order lifecycle. Native OTOCO pending orders wait for full working-order execution and do not solve the current two-bracket/partial-fill design automatically. |
 | [Binance filters](https://github.com/binance/binance-spot-api-docs/blob/master/filters.md) | PRICE_FILTER, LOT_SIZE, MIN_NOTIONAL/NOTIONAL, market quantities, percent bounds | Filter validity is separate from strategy suitability; never enlarge the configured budget to force two OCO legs. |

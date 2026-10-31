@@ -1,10 +1,19 @@
-# Harden Spot recovery and add configurable trading with confirmed position exits
+# NEXVANT: recoverable Spot trading with approved setups and position management
 
 Interrupted buys, uncertain responses and partial OCO placement could lose track
 of acquired coins. This branch journals order identities before requests,
 reconciles fills/fees, isolates account/environment state and recovers ownership
 after restart. Price-capped IOC entries and two protective OCOs retain single-use
 Telegram approval bounds. Uncertain writes are never blindly retried.
+
+The product now uses NEXVANT identity across code, help, launcher and docs, with
+original banner/avatar assets. /start opens a photo dashboard; its fixed owner-only
+shortcuts reuse existing commands. Startup registers a chat-scoped native Menu
+and the requested display name, descriptions and static profile photo through
+verified Bot API methods. Successful cosmetics are cached without storing the
+token, failures retry later, and missing/rejected images fall back to text.
+Telegram @usernames/client themes are documented separately. Runtime paths and
+existing journals are retained; branding adds no trading permissions.
 
 V1.3 adds owner-only /setup with reviewed, confirmed maximum active trades and
 per-trade investment cap. Defaults remain one trade and 12 USDT. Account-scoped
@@ -54,13 +63,14 @@ cannot bypass configured caps, exchange validity, ownership, OCO protection or
 final approval. Every new buy still requires approval. Settings are ceilings,
 not guaranteed allocation; aggregate normal risk/funds can prevent filling slots.
 
-Validation: **520 passed, 3 native Windows skips**, three upstream deprecation
+Validation: **538 passed, 3 native Windows skips**, three upstream deprecation
 warnings. Ruff lint/format, Bandit, pip dependencies and whitespace checks pass.
 Tests use synthetic transport data with sockets/HTTP forbidden. New tests cover
 atomic settings/audit, stale approvals, concurrent pair admission, separate
 protection/recovery/closing, cash/risk reservations, exchange capacity, completed
 P&L day boundaries, shutdown ordering, exact-record exit authorization, stale
-controls, partial/timeout/stop races, watch changes and close restart recovery.
+controls, partial/timeout/stop races, watch changes and close restart recovery,
+owner-only dashboard navigation, cosmetic cache/fallbacks and multipart payloads.
 Windows console callback logic is mocked
 locally; actual Windows console timing remains a native verification step.
 
