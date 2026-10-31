@@ -5,6 +5,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import binance.base_client
+import binance.ws.reconnecting_websocket
 import pytest
 import requests
 from simulator import SpotSimulator
@@ -40,6 +42,13 @@ def offline(monkeypatch, tmp_path):
 
 @pytest.fixture
 def sim(monkeypatch):
+    # The synchronous SDK eagerly creates unused websocket event loops. On
+    # Windows asyncio builds its wakeup socketpair using loopback connections,
+    # which our strict socket guard correctly forbids. REST tests need no event
+    # loop: an inert object avoids that setup without permitting any networking.
+    unused_loop = object()
+    monkeypatch.setattr(binance.base_client, "get_loop", lambda: unused_loop)
+    monkeypatch.setattr(binance.ws.reconnecting_websocket, "get_loop", lambda: unused_loop)
     sim = SpotSimulator()
     monkeypatch.setattr(em, "client", sim.client)
     em.initialize()

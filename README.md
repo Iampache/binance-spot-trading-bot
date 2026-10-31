@@ -23,7 +23,9 @@ Codex is used to develop, review and test new features. Live trades must never b
 
 ## Hardened development workflow
 
-Use Python 3.12 on Linux (the account locks use `fcntl`). Install and validate offline:
+Use Python 3.12 on Linux or Windows 11. Account locks use pinned `portalocker==3.2.0`
+(OS file locks on POSIX and Win32 locks on Windows). Install and validate offline
+on Linux:
 
 ```sh
 python3 -m venv .venv
@@ -32,6 +34,21 @@ PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m pytest -q
 .venv/bin/ruff check *.py tests
 .venv/bin/bandit -q *.py
 ```
+
+On Windows 11, use PowerShell (no production credentials are needed for tests):
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt -c requirements.lock
+$env:PYTHON_DOTENV_DISABLED = "1"
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m ruff format --check .
+```
+
+The Windows dependency `pywin32` is installed automatically through portalocker;
+the constraints snapshot pins it on Windows only. Upgrade dependencies with the
+commands above rather than copying a Linux virtual environment onto Windows.
 
 `requirements.lock` records the exact packages used for validation; it is a constraints
 snapshot, not a hash-verified artifact lock. The Binance SDK is pinned to 1.0.37.
@@ -76,10 +93,16 @@ numeric UID and `SPOT` account type; it refuses to guess an identity if unavaila
 
 Records are stored under `runtime_state/<testnet|live>/<account UID>/trades/`.
 Preserve this directory on durable storage. Every write intention and client ID is
-saved with file and directory synchronization before submission. Account operation
+saved with file synchronization and atomic replacement before submission.
+POSIX additionally synchronizes the containing directory. Python does not support
+directory fsync on Windows: process-crash recovery is supported, but equal
+power-loss durability across filesystems/platforms is not guaranteed. Account operation
 locks serialize entries, monitors, status reconciliation and kill operations on
 this filesystem. The process lock is released automatically after process death;
-never delete its inode to unlock a running process. These locks do not coordinate
+never delete the lock file to unlock a running process. The live handle is held
+until the entire protected scope ends, and is closed even if explicit unlocking
+fails. Instance locks reject competitors immediately; operation locks wait for
+other processes and retain reentrant thread serialization. These locks do not coordinate
 separate machines or independent copies of the state directory.
 
 Legacy `state/` records are **not automatically migrated or ignored**: their

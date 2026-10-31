@@ -1,10 +1,10 @@
 """Durable Spot inventory ledger. Unknown outcomes never authorize another write."""
 
 import argparse
-import fcntl
 import json
 import logging
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 
 import exchange as ex
 import safety
+from file_locking import ProcessLock
 
 load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
@@ -33,6 +34,7 @@ client = None
 STOP = threading.Event()
 MUTEX = threading.RLock()
 LOCK_STATE = threading.local()
+WINDOWS = sys.platform == "win32"
 TERMINAL = {"FILLED", "CANCELED", "REJECTED", "EXPIRED", "EXPIRED_IN_MATCH"}
 log = logging.getLogger(__name__)
 safety.secure_logging()
@@ -130,19 +132,28 @@ def _atomic_write(path, item):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, tmp = tempfile.mkstemp(prefix=".pending-", dir=path.parent)
     try:
-        with os.fdopen(fd, "w") as fp:
+        with os.fdopen(fd, "w", encoding="utf-8") as fp:
             json.dump(item, fp, indent=2, allow_nan=False)
             fp.flush()
             os.fsync(fp.fileno())
         os.replace(tmp, path)
-        directory = os.open(path.parent, os.O_DIRECTORY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        _sync_directory(path.parent)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+def _sync_directory(path):
+    # Python cannot open/fsync directory handles on Windows. The journal itself
+    # is flushed before atomic replacement on both platforms. Retain directory
+    # fsync on POSIX and propagate real IO failures rather than hiding them.
+    if WINDOWS:
+        return
+    directory = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def save_trade(rec):
@@ -158,7 +169,7 @@ def load_trades():
     records = []
     for path in sorted(TRADES_DIR.glob("*.json")):
         try:
-            rec = json.loads(path.read_text())
+            rec = json.loads(path.read_text(encoding="utf-8"))
             if (
                 rec["version"] != 3
                 or rec["context"] != CONTEXT
@@ -996,22 +1007,6 @@ def close_bot_trade(symbol, confirmation):
     return reconcile_trade(rec)
 
 
-class ProcessLock:
-    def __init__(self, path):
-        self.fp = path.open("a+")
-        try:
-            fcntl.flock(self.fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            self.fp.close()
-            raise FileExistsError("Another instance holds the account lock") from None
-
-    def unlink(self, missing_ok=True):
-        # Never unlink the inode: another process could otherwise lock a new inode.
-        if not self.fp.closed:
-            fcntl.flock(self.fp, fcntl.LOCK_UN)
-            self.fp.close()
-
-
 def instance_lock():
     ensure_context()
     path = TRADES_DIR.parent / "instance.lock"
@@ -1028,14 +1023,12 @@ def operation_lock():
             return
         path = TRADES_DIR.parent / "operation.lock"
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with path.open("a+") as fp:
-            fcntl.flock(fp, fcntl.LOCK_EX)
+        with ProcessLock(path, blocking=True):
             LOCK_STATE.active = True
             try:
                 yield
             finally:
                 LOCK_STATE.active = False
-                fcntl.flock(fp, fcntl.LOCK_UN)
 
 
 def status_report():

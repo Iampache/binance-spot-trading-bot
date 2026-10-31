@@ -15,6 +15,7 @@ mdurl==0.1.2
 multidict==7.2.1
 packaging==26.3
 pluggy==1.7.0
+portalocker==3.2.0
 propcache==0.5.4
 pycryptodome==4.2.0
 Pygments==2.21.0
@@ -25,6 +26,7 @@ python-dotenv==1.2.4
 python_binance==1.0.37
 pytz==2026.6
 PyYAML==6.0.3
+pywin32==311; platform_system == "Windows"
 regex==2026.9.29
 requests==2.34.2
 rich==15.0.0

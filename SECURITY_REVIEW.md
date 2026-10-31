@@ -86,7 +86,11 @@ establish exchange-side correctness.
 9. **Credential permissions are unverified.** No production credentials were read
    or tested. A future operator must independently verify restricted Spot-only
    permissions, no withdrawal permission, suitable IP restrictions and isolation.
-10. **Platform and dependency limits.** Runtime locking requires Linux/POSIX.
+10. **Platform and dependency limits.** Runtime locking uses portalocker on
+    Windows and POSIX, with non-inheritable handles retained for each protected
+    lifetime. File flush and atomic journal replacement run on both platforms;
+    directory fsync remains POSIX-only, so Windows power-loss durability is not
+    claimed equivalent. Filesystem/process locks are not distributed locks.
     Version constraints improve repeatability but are not artifact hashes or a
     dependency-CVE audit. SDK/websocket deprecation warnings remain upstream.
 

@@ -64,3 +64,31 @@ and the complete Telegram polling loop. Four upstream deprecation warnings from
 the SDK/websocket integration remain; none are suppressed. There is no skipped or
 expected-failure test used to hide a failing safety check. The simulator does not
 implement every Binance API condition. See SECURITY_REVIEW.md for unresolved risks.
+
+
+## Windows compatibility follow-up
+
+The complete suite now has **113 passing tests** on the local Linux/Python 3.12
+execution environment, with three upstream deprecation warnings. The new locking
+module has 100% statement coverage locally; overall coverage remains 70%. Lint,
+formatting, dependency consistency, Bandit, and diff checks passed. The final JUnit
+report is `/tmp/binance-windows-compatibility-tests.xml`. The SDK's unused
+websocket event-loop creation is replaced with an inert object in REST test
+fixtures: Windows asyncio can otherwise create loopback sockets during construction,
+which conflicts with the intentionally unchanged socket/HTTP network guard.
+
+Eleven cross-platform regression cases cover imports without Unix-only application
+modules; journal replacement when `O_DIRECTORY` is absent; file synchronization
+before replacement; propagation of real IO failures; simultaneous subprocess
+instance prevention; operation-lock blocking for the entire scope; non-inheritable
+handles; lock release after forced process death for both lock types; failure-path
+handle cleanup; and the exact blocking/nonblocking lock flags. Existing nested,
+concurrent-approval, crash-recovery and kill-while-running tests remain enabled.
+Subprocess probes use a synthetic account context, disable dotenv loading, whitelist
+only non-secret platform bootstrap variables and forbid network connections.
+
+The Windows pywin32 311 wheel for CPython 3.12/AMD64 was verified available by a
+TLS-verified package download; it was not executed on Linux. A GitHub Actions matrix
+runs the full suite and lint/format checks on `windows-latest` and `ubuntu-latest`.
+Native Windows results remain pending CI execution; the local Linux result must not
+be interpreted as a completed native Windows run. No live integration was performed.
