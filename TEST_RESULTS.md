@@ -92,3 +92,20 @@ TLS-verified package download; it was not executed on Linux. A GitHub Actions ma
 runs the full suite and lint/format checks on `windows-latest` and `ubuntu-latest`.
 Native Windows results remain pending CI execution; the local Linux result must not
 be interpreted as a completed native Windows run. No live integration was performed.
+
+
+## Windows dependency-resolution correction
+
+The original `pywin32==311` Windows-only constraint did not provide CPython 3.15
+wheels. It was replaced with `pywin32==312`, which remains compatible with
+portalocker's `pywin32>=226` requirement and publishes wheels for CPython 3.15 as
+well as the original Python 3.12 target. Verification uses official PyPI metadata
+and TLS-verified cross-platform wheel downloads without executing Windows code.
+Windows CI now covers both Python 3.12 and 3.15; Linux CI remains on 3.12. Native
+Windows results must be checked in CI; this dependency correction does not claim
+that Python 3.15 has been executed in the Linux development workspace.
+
+After this correction, the complete local suite passes (113 tests, three upstream
+warnings), with lint, formatting, Bandit and dependency checks passing. The Python
+3.15 Windows CI installation step is the dependency-resolution regression check: it
+would fail with the original 311 pin before the test suite starts.

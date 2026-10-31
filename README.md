@@ -47,7 +47,11 @@ $env:PYTHON_DOTENV_DISABLED = "1"
 ```
 
 The Windows dependency `pywin32` is installed automatically through portalocker;
-the constraints snapshot pins it on Windows only. Upgrade dependencies with the
+the constraints snapshot pins version 312 on Windows only. Version 311 lacks
+Python 3.15 wheels and can cause a misleading dependency-conflict error on that
+interpreter. The version 312 wheel set includes CPython 3.12–3.15 on x86, x64 and
+ARM64. Native Python 3.15 execution is covered by the Windows CI job, not by the
+local Linux validation. Upgrade dependencies with the
 commands above rather than copying a Linux virtual environment onto Windows.
 
 `requirements.lock` records the exact packages used for validation; it is a constraints
