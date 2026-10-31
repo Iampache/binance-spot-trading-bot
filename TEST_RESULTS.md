@@ -147,3 +147,21 @@ durable-ID test and its assertions are unchanged. All **123 tests pass locally**
 with three upstream warnings; lint, formatting, Bandit, dependency and whitespace
 checks pass. Native Windows rerun is required to confirm the user's actual case.
 No real trades, production credentials or external exchange connections are used.
+
+
+## Binance server-clock synchronization
+
+The user reported live read-only status failures with -1021 after Windows domain
+NTP resynchronization. No live account was accessed to investigate. Startup now
+uses the public Spot time endpoint and the pinned SDK's `timestamp_offset` to
+correct signing time; account and order-status reads permit one forced resync on
+-1021. recvWindow, operating-system time and trade limits remain unchanged.
+
+Seventeen added offline regressions verify ahead/behind clocks with the actual
+SDK signer, latency-corrected sample selection, cache expiry and domain-clock
+jumps, malformed/slow/unavailable time responses, signed-read blocking on sync
+failure, bounded read retries, no retry for other API errors, and strict exclusion
+of buy/sell/cancel methods from the read-retry helper. A timestamp-rejected buy is
+persisted as rejected and never automatically resubmitted. The complete local
+suite now has **145 passing tests** with three upstream warnings. Native Windows
+live-account behavior remains unverified until the user retries read-only status.

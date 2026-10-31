@@ -76,13 +76,14 @@ def get_client():
             ping=False,
             requests_params={"timeout": 15},
         )
+    ex.synchronize_clock(client)
     return client
 
 
 def initialize():
     """Account UID is verified by Binance; aliases/keys are not account identity."""
     global CONTEXT, TRADES_DIR
-    account = get_client().get_account()
+    account = ex.signed_read(get_client(), "get_account")
     if account.get("uid") is None or account.get("accountType") != "SPOT":
         raise RuntimeError("Verified Spot account UID required; no identity fallback")
     uid = str(account["uid"])

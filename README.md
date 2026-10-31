@@ -170,3 +170,23 @@ rather than silently truncating accounting.
 
 See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the second review and remaining
 risks, and [TEST_RESULTS.md](TEST_RESULTS.md) for the regression mapping and results.
+
+
+## Binance timestamp error -1021
+
+A successful Windows/domain NTP resync does not prove the host clock agrees with
+Binance. Before authenticated access, the client samples the public Spot server
+time and sets the SDK's timestamp offset using the lowest-round-trip-time of
+three samples. The offset is cached for up to 30 seconds and invalidated on a
+wall-clock jump. This changes neither Windows time nor Binance's recvWindow.
+Samples taking over one second, malformed timestamps and clock jumps during
+sampling fail closed rather than guessing an offset.
+
+Account and order-status reads can resynchronize and retry once on -1021.
+Mutating requests are never automatically retried by this mechanism. An explicit
+timestamp rejection of a buy/OCO is journaled as rejected, so recovery cannot
+silently resubmit it; any later buy still needs a fresh approval. An unavailable
+public time service blocks authenticated initialization. No API key rotation is
+needed solely to correct a timestamp error. Persistent failures still require
+network/latency investigation; do not bypass timestamp checks or enlarge the
+request window to hide them.

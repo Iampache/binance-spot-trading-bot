@@ -145,6 +145,8 @@ class SpotSimulator:
             if value is not None:
                 return value
         if method == "get":
+            if path == "time":
+                return {"serverTime": int(time.time() * 1000)}
             if self.read_failures and path in ("order", "orderList", "myTrades"):
                 self.read_failures -= 1
                 raise TimeoutError("synthetic transport failure")
