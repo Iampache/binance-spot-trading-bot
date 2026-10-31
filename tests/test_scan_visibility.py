@@ -105,3 +105,91 @@ def test_send_proposal_delivery_status_is_explicit(scan, sim, monkeypatch):
     assert tg.send_proposal(sig(), plan, "") is True
     monkeypatch.setattr(tg, "say", lambda *a, **k: {"ok": False, "description": "rejected"})
     assert tg.send_proposal(sig(), plan, "") is False
+
+
+def test_active_trade_block_still_displays_all_levels_without_new_approval(scan, sim, monkeypatch):
+    import exit_manager as em
+
+    plan = ta.build_plan(sig())
+    em.new_trade(plan)  # unresolved journal must block another buy
+    monkeypatch.setattr(ta, "scan_candidates", lambda: ({"FOOUSDT": sig()}, "BTC downtrend"))
+    result = tg.scan_once()[0]
+    assert "blocked — Open or unresolved bot trade exists" in result
+    assert "PREVIEW ONLY" in result
+    for field, value in (("Entry", "100"), ("SL", "97"), ("TP1", "104.5"), ("TP2", "107.5")):
+        assert f"{field}: {value}" in result
+    assert "fresh executable proposal" in result
+    assert "BTC downtrend" in "\n".join(scan)
+    assert not tg.pending and not sim.writes and not sc.last_alert
+    assert len(em.active_trades()) == 1
+
+
+def test_cooldown_preview_has_levels_without_actionable_proposal(scan, monkeypatch):
+    monkeypatch.setattr(ta, "scan_candidates", lambda: ({"FOOUSDT": sig()}, ""))
+    sc.last_alert["FOOUSDT"] = time.time()
+    tg.scan_once()
+    assert "TP1: 104.5" in "\n".join(scan)
+    assert not tg.pending
+
+
+def test_invalid_preview_levels_are_explicit_and_do_not_hide_reason(scan, monkeypatch):
+    monkeypatch.setattr(
+        ta, "scan_candidates", lambda: ({"FOOUSDT": {**sig(), "entry": float("nan")}}, "")
+    )
+    result = tg.scan_once()[0]
+    assert "blocked" in result and "levels unavailable" in result
+    assert not tg.pending
+
+
+def message(text):
+    return {"chat": {"id": tg.CHAT_ID}, "from": {"id": tg.CHAT_ID}, "text": text}
+
+
+@pytest.mark.parametrize("command", ["SHOW PR", "show pr", " SHOW   PR ", "/showpr"])
+def test_show_pr_retrieves_blocked_candidate_without_order_or_approval(
+    scan, sim, monkeypatch, command
+):
+    import exit_manager as em
+
+    em.new_trade(ta.build_plan(sig()))
+    monkeypatch.setattr(ta, "scan_candidates", lambda: ({"FOOUSDT": sig()}, "BTC downtrend"))
+    tg.scan_once()
+    scan.clear()
+    tg.handle_message(message(command))
+    text = "\n".join(scan)
+    assert "VIEW ONLY" in text and "UTC" in text
+    assert "FOOUSDT: blocked" in text and "Open or unresolved" in text
+    for field in ("Entry:", "SL:", "TP1:", "TP2:"):
+        assert field in text
+    assert not tg.pending and not sim.writes
+    assert len(em.active_trades()) == 1
+
+
+def test_show_pr_cannot_reactivate_cancelled_proposal(scan, sim):
+    tg.send_proposal(sig(), ta.build_plan(sig()), "")
+    tg.handle_message(message("/cancel"))
+    assert not tg.pending
+    scan.clear()
+    tg.handle_message(message("SHOW PR"))
+    assert "VIEW ONLY" in scan[-1] and "TRADE PROPOSAL" in scan[-1]
+    assert "Expires in" not in scan[-1]
+    assert not tg.pending and not sim.writes
+
+
+def test_show_pr_empty_and_unauthorized_requests(scan):
+    tg.handle_message(message("SHOW PR"))
+    assert "since this bot started" in scan[-1]
+    scan.clear()
+    tg.last_preview.update(text="private preview", saved_at=time.time())
+    tg.handle_message({"chat": {"id": "stranger"}, "from": {"id": "stranger"}, "text": "SHOW PR"})
+    assert not scan
+
+
+def test_empty_scan_keeps_previous_preview(scan, monkeypatch):
+    monkeypatch.setattr(ta, "scan_candidates", lambda: ({"FOOUSDT": sig()}, ""))
+    monkeypatch.setattr(ta, "build_plan", lambda s: (_ for _ in ()).throw(ValueError("blocked")))
+    tg.scan_once()
+    snapshot = dict(tg.last_preview)
+    monkeypatch.setattr(ta, "scan_candidates", lambda: ({}, ""))
+    tg.scan_once()
+    assert tg.last_preview == snapshot

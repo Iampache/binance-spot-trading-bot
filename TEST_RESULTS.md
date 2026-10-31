@@ -289,3 +289,18 @@ skipped on Linux. Ruff lint/format, Bandit, pip check and diff whitespace checks
 pass. No production credentials, live Binance connections or real orders were
 used. Tests do not establish production matching-engine behavior or native
 Windows success; Windows CI/user verification remains necessary.
+
+## Candidate previews and SHOW PR
+
+Ten additional regressions verify that active-trade blocks and cooldowns retain
+all four scanner levels without new orders/approvals, invalid levels are explicit,
+SHOW PR and /showpr are authorized read-only commands, canceled proposals cannot
+be reactivated by viewing, empty scans retain the last snapshot, and a fresh
+process reports no saved preview. The cache is intentionally process-local and
+contains no executable authorization. Existing message splitting and notification
+preferences remain enforced.
+
+Local Linux result: **252 passed, 3 native Windows skips**, three upstream warnings.
+Ruff, formatting, Bandit, dependency and whitespace checks pass. No live account
+or real trades were used. The previous user-reported Windows run (245 passed)
+predates these ten new tests; this update still requires Windows verification.

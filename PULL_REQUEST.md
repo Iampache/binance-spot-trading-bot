@@ -42,3 +42,9 @@ regression also fixes known-unsent OCO validation failures blocking safe recover
 Validation: 242 passed, 3 native Windows skips; lint/format/Bandit/dependency checks
 pass. No live trades/account access. See README and SECURITY_REVIEW.md for polling,
 gap, non-atomic protection and offline-test limitations.
+
+Candidate visibility follow-up: blocked/cooldown scan candidates retain Entry,
+SL, TP1 and TP2 as explicit previews. SHOW PR or /showpr retrieves the latest
+process-local proposal/candidate snapshot without approval buttons or new orders.
+Historical snapshots cannot reactivate canceled approvals, and the active-trade
+limit is unchanged. Validation: 252 offline passes, 3 native Windows skips.

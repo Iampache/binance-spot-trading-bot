@@ -33,6 +33,7 @@ def offline(monkeypatch, tmp_path):
     monkeypatch.setattr(em, "alert", lambda message: None)
     monkeypatch.setattr(em, "POLL_SECONDS", 0)
     em.STOP.clear()
+    tg.last_preview.clear()
     tg.pending.clear()
     tg.checks.clear()
     tg.state.clear()

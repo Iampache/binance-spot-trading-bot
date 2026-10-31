@@ -335,3 +335,18 @@ The 12 USDT cap including reserved fees, two valid protective OCO quantities and
 exchange minimums remain mandatory. Entry mode does not add exceptions to the
 already displayed manual risk override. A proposal expires after 5 minutes;
 an approved watch has its separate fixed 15-minute lifetime, which is not renewed.
+
+## View scanner candidates while a position is active
+
+Scanner summaries include candidate Entry, SL, TP1 and TP2 reference levels even
+when a position, cooldown or another validation prevents an executable proposal.
+These are labeled previews, with the blocking reason; they cannot bypass the
+one-active/unresolved-trade limit or substitute for exchange-rounded order levels.
+
+Send **SHOW PR** (case insensitive) or **/showpr** to see the most recent proposal
+or candidate snapshot saved during this bot process. It includes the saved UTC
+time and is read-only: no order, approval button or renewed authorization is
+created. An empty scan preserves the previous snapshot. Restart clears the
+snapshot; `/check COIN` or a new scan supplies a fresh one. `/cancel` can invalidate
+a proposal while its historical snapshot remains viewable. Prices may be stale;
+use `/check COIN` and fresh approval when you can open another position.

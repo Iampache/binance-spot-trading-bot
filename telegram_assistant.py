@@ -55,6 +55,7 @@ SCAN_CANDIDATE_NOTIFICATIONS = (
 )
 API = f"https://api.telegram.org/bot{TOKEN}"
 
+last_preview = {}  # read-only snapshot for SHOW PR; never an approval source
 pending = {}  # proposal id -> dict
 checks = {}  # /check card id -> dict
 state = {}  # conversation state for /check and manual entry
@@ -69,6 +70,7 @@ HELP = (
     "/check  - check any coin (then send the pair, e.g. BTC/USDT)\n"
     "/check BTC/USDT - check directly\n"
     "/status - balance and open orders\n"
+    "SHOW PR or /showpr - latest proposal/candidate snapshot (view only)\n"
     "/cancel - cancel what you were doing\n\n"
     "After /check: 1 = scanner plan, 2 = recheck in 15 min, 3 = manual override. "
     "Manual: Enter now (3 levels), Now preset (no typing), or Wait at my price (4 levels). "
@@ -194,7 +196,31 @@ def send_proposal(sig, plan, note):
             mid=r["result"]["message_id"],
             text=text,
         )
+        last_preview.update(text=text, saved_at=time.time())
     return True
+
+
+def show_last_proposal():
+    with pend_lock:
+        snapshot = dict(last_preview)
+    if not snapshot:
+        say(
+            "No proposal or candidate saved since this bot started. Use /check COIN or wait for a scan."
+        )
+        return
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(snapshot["saved_at"]))
+    # Remove the original relative expiry, which would be misleading on an old snapshot.
+    body = "\n".join(
+        line for line in snapshot["text"].splitlines() if not line.startswith("Expires in ")
+    )
+    text = (
+        f"LATEST PROPOSAL / CANDIDATE — VIEW ONLY\nSaved {stamp}\n"
+        "Historical snapshot; prices may be stale. No order or approval is created.\n\n"
+        + body
+        + "\n\nUse /check COIN for a fresh proposal. Active-trade limits still apply."
+    )
+    for start in range(0, len(text), 3500):
+        say(text[start : start + 3500])
 
 
 def expire_pending():
@@ -614,7 +640,9 @@ def handle_message(msg):
         return  # strangers get no reply at all
     text = msg.get("text", "").strip()
     low = text.lower().replace("-", "_")
-    if low.startswith("/status"):
+    if " ".join(low.split()) in ("show pr", "/showpr"):
+        show_last_proposal()
+    elif low.startswith("/status"):
         try:
             say(f"[{mode_label()}]\n{em.status_report()}\nPending proposals: {len(pending)}")
         except Exception as e:
@@ -664,6 +692,7 @@ def scan_once():
     sc.log.info("Scan candidates (%s): %s", len(cands), names)
     results, sent = [], 0
     for sym, sig in cands.items():
+        delivered = False
         remaining = sc.COOLDOWN_SECONDS - (time.time() - sc.last_alert.get(sym, 0))
         if remaining > 0:
             result = f"{sym}: cooldown, {int(remaining)} seconds remaining"
@@ -671,6 +700,7 @@ def scan_once():
             try:
                 plan = ta.build_plan(sig)
                 if send_proposal(sig, plan, note):
+                    delivered = True
                     sc.last_alert[sym] = time.time()
                     sent += 1
                     result = f"{sym}: proposal sent; awaiting your approval"
@@ -680,6 +710,22 @@ def scan_once():
                 result = f"{sym}: blocked — {safety.redact(str(error))}"
             except Exception as error:
                 result = f"{sym}: blocked — {safe(error)}"
+        try:
+            # Display scanner levels without bypassing execution planning or creating
+            # an actionable proposal. These are signal prices, not rounded order levels.
+            ta.require_finite_levels(sig)
+            result += (
+                "\nCandidate levels — PREVIEW ONLY (scanner reference, not an approved order):"
+                f"\nEntry: {sc.fmt(sig['entry'])} | SL: {sc.fmt(sig['stop'])}"
+                f"\nTP1: {sc.fmt(sig['t1'])} | TP2: {sc.fmt(sig['t2'])}"
+                "\nA fresh executable proposal and approval are required before buying. "
+                "One active/unresolved bot trade maximum remains enforced."
+            )
+        except (ValueError, KeyError, TypeError):
+            result += "\nCandidate levels unavailable: invalid or incomplete scanner signal."
+        if not delivered:
+            with pend_lock:
+                last_preview.update(text=f"{result}\n{note}", saved_at=time.time())
         results.append(result)
         sc.log.info("%s", result)
     sc.log.info(
