@@ -1,0 +1,149 @@
+# TRBT algorithmic proposal design
+
+Display version: 1.1.0. Strategy identity: `atr-structure-v1`.
+Reviewed public documentation on 31 October 2026 (Asia/Dubai).
+
+This is a deterministic rules-based proposal generator, not a trained AI model,
+a price prediction, or evidence of positive expected returns. No profitable edge,
+win rate or capital safety has been established by the engineering tests. It can
+correctly reject every current symbol, particularly in a BTC downtrend. Telegram
+approval remains mandatory, as explicitly confirmed by the account owner.
+
+## User control
+
+- **Manual:** provide ENTRY, STOP, TP1, TP2. Manual risk exceptions stay explicit.
+  A local watch waits for the entry cap for up to 15 minutes. If already eligible,
+  it can attempt entry promptly. It never leaves an unprotected resting buy.
+- **Assisted:** the algorithm suggests a current capped entry and statistical stop;
+  the user supplies TWO profit targets. Targets must remain within the model's
+  reward/resistance bounds and pass net fee-reserved reward/risk validation. An
+  indicative quote can change before the final proposal is displayed; approved
+  prices, quantities and risk cannot subsequently be increased without approval.
+- **Auto Setup:** the algorithm suggests all levels. No typing is needed, but the
+  user still reviews the chart, Details, and explicitly approves or rejects.
+
+“EXIT” in the four-price input means STOP, the stop-loss trigger. OCO stop-market
+execution can slip. It does not mean a guaranteed exit price or automatic
+breakeven. Two targets retain the existing half/remainder OCO design.
+
+## Market observations
+
+Use actual installed `python-binance==1.0.37` interfaces: `get_server_time`,
+`get_klines`, `get_orderbook_ticker` and existing symbol/filter/commission reads.
+No Binance account or market endpoints were contacted during development; tests
+supply synthetic data behind the real SDK transport interface.
+
+For each calculation request:
+
+1. Fetch up to 201 candles for symbol 15m, symbol 1h and BTCUSDT 1h. Require at
+   least 120 closed candles in each series. Timestamp, OHLC, positivity, volume,
+   chronology, exact interval and freshness checks reject malformed/stale data.
+   Exclude the current unfinished candle, even when its apparent price spikes.
+   UTC candle boundaries are the Binance default. No future bar is inspected.
+2. Both symbol and BTC 1h must satisfy close > EMA20 > EMA50, with EMA50 greater
+   than its value five closed bars earlier. This BTC rejection is deliberately
+   stricter than the existing background scanner's informational BTC warning.
+3. On symbol 15m, compute EMA20, Wilder RSI14, Wilder ATR14, and latest volume
+   divided by the average of the preceding 20 closed bars. Require either:
+   - Pullback: a low among the last three bars touched EMA20 + 0.3%, the last
+     candle is green and closes above EMA20, RSI is 38–60, relative volume ≥0.8.
+   - Breakout: green close above the preceding 20-bar high, relative volume ≥1.5,
+     RSI 45–68.
+   Reject a close more than 2.5% above EMA20. These parameter choices are
+   conservative heuristics, not optimized or historically validated statistics.
+
+## Level geometry
+
+For the on-demand Auto Setup and Assisted modes, entry is the current best ask
+plus the existing 0.2% allowance, rounded UP to one valid tick. This is a maximum
+buy price after a confirmed setup, not a forecast of the future optimal low.
+Execution uses the existing LIMIT IOC lifecycle, which can expire with zero fill.
+
+Let E be the entry cap, A be ATR14, and L the minimum low of the last 12 closed
+15m candles. The proposed stop, rounded DOWN, is:
+
+`S = min(L − 0.25 A, E − 1.5 A, 0.99 E)`
+
+The 1% term preserves the current strategy's minimum stop distance; it is not a
+replacement for volatility or support. Reject non-positive stops and distances
+outside the existing 1%–6% range. Do not tighten the stop to force a trade to fit.
+
+R = E − S. Initial target projections are E + 2R and E + 3R. Search the last 96
+closed candles for strict local pivot highs with two already-closed bars on each
+side. Cap TP1 before the nearest overhead resistance minus 0.1 ATR; cap TP2 before
+the next suitable overhead resistance, otherwise retain its 3R projection. Both
+are rounded down. If nearby resistance prevents ordered targets and at least
+1.5R gross reward, skip. R projections in open space are not statistically
+predicted future prices. Assisted targets cannot exceed these model ceilings.
+
+With the verified account's full reserved fee rate f, also require:
+
+`(TP1 − E − f(TP1 + E)) / (E − S + f(E + S)) >= 1.5`
+
+Also reject when the displayed full-target scenario, after quantity-step rounding
+and full entry/exit fee reserves, is non-positive. Coarse quantity steps and the
+small budget must not hide that loss even when per-unit reward/risk looks good.
+
+This is an additional conservative screening ratio, not a guarantee that actual
+fees/slippage/loss will match the estimate. BNB discount savings are not assumed.
+
+## Execution constraints and changing observations
+
+All existing account identity, journal, open/unresolved position, balance,
+liquidity/spread/depth, fee, exchange precision, minimum notional, quantity and OCO
+capacity checks remain. Numerical policy is unchanged: 10M USDT minimum 24h
+volume, 1% of available USDT risk, 12 USDT position including reserve, one active
+trade and 3 USDT daily loss threshold. Algorithm modes cannot invoke manual
+exceptions; unsupported exchange minimums cause an explained skip. The 24h move
+must also remain within the scanner's -15% / +25% pump/dump boundaries.
+
+At final planning and immediately before an approved entry, re-fetch closed
+candles and verify eligibility. Preserve the strategy identity, original analysis
+metadata, approved stop/targets and quantity/cost/risk ceilings in the journal.
+Reject when support/volatility now requires a lower stop or resistance invalidates
+targets. Never silently move approved exits. Check live ask against the approved
+cap and against the last closed-candle setup (ATR-scaled 1%–2.5% drift bound).
+Analysis is limited to 20 minutes of age, including a possible 15-minute watch;
+proposals and watches retain their existing, shorter independent deadlines.
+
+The planner also supports an internal user-limit entry calculation, used to test
+persistent watch revalidation. It is not an additional Telegram mode. That limit
+must be at/below ask and within 2 ATR at creation; this is not a stop-buy breakout
+order. New closed-candle stop breaches invalidate such a watch before buying.
+
+## Public references reviewed
+
+| Source | What was checked | Consequence for TRBT |
+| --- | --- | --- |
+| [Binance Spot REST](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md) | Klines, server time, order book, IOC, OCO and OTOCO | Separate closed-bar analysis from live execution; retain existing verified order lifecycle. Native OTOCO pending orders wait for full working-order execution and do not solve the current two-bracket/partial-fill design automatically. |
+| [Binance filters](https://github.com/binance/binance-spot-api-docs/blob/master/filters.md) | PRICE_FILTER, LOT_SIZE, MIN_NOTIONAL/NOTIONAL, market quantities, percent bounds | Filter validity is separate from strategy suitability; never enlarge the 12 USDT budget to force two OCO legs. |
+| [Freqtrade Telegram](https://github.com/freqtrade/freqtrade/blob/develop/docs/telegram-usage.md) | Status/profit views, command/confirmation controls | Make strategy suggestions, execution authorization and realized results distinct. No Freqtrade commands or trading behavior were copied into this bot. |
+| [Freqtrade strategy customization](https://github.com/freqtrade/freqtrade/blob/develop/docs/strategy-customization.md) and [lookahead analysis](https://github.com/freqtrade/freqtrade/blob/develop/docs/lookahead-analysis.md) | Candle-based signals, strategy separation, future-data leakage tests | Exclude unfinished candles and document the need for independent walk-forward validation. |
+| [OctoBot public README](https://github.com/Drakkar-Software/OctoBot) | Publicly documented Telegram interface, paper trading and backtesting features | Compare interface/testing practices only. No OctoBot instance was contacted, run or evaluated for profitability. |
+
+These are reviews of public documentation, not endorsements, comparative trading
+benchmarks, or an audit of proprietary Telegram bots. No third-party service got
+account access. Binance's API specification does not provide a profitable strategy
+or certify these parameters.
+
+## Validation and unresolved strategy risk
+
+Synthetic offline SDK simulations verify indicator arithmetic, exclusion of open
+candles, bad/stale/missing/future data, bearish regimes, resistance rejection, fees,
+risk budget/minimums, metadata binding, final revalidation, protected fills, and
+persistent watch invalidation. Existing lifecycle/ownership/crash tests also run.
+The mode UI tests prove that Assisted/Auto Setup do not submit orders without a
+separate approval and that cancellation clears unfinished user input.
+
+No out-of-sample historical backtest, walk-forward profitability study, paper
+trading run or live matching-engine validation was performed. Before relying on
+this strategy, evaluate a user-supplied historical dataset with no future leakage,
+realistic commissions/spreads/slippage, ambiguous candles where stop and target
+are both touched (assume stop first), partial fills, delistings and periods of
+BTC/altcoin downtrends. Report net expectancy, drawdown, losing streak, turnover,
+trade rejection rate and sensitivity to nearby parameter choices, then reserve
+an untouched evaluation period. Synthetic tests cannot establish these metrics.
+
+Prices can gap between checks, buy and OCO placement are not atomic, targets can
+fail to fill, emergency exits can fail, and dust can block closure. Statistical
+levels are suggestions; they do not remove the account owner's trading risk.

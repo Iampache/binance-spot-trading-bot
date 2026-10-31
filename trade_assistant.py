@@ -15,6 +15,14 @@ MAX_SPREAD_BPS = Decimal("30")
 MIN_DEPTH_MULTIPLE = Decimal("5")
 MAX_PRICE_DRIFT_PCT = Decimal("0.5")
 LIVE = not em.USE_TESTNET
+ALGORITHM_FIELDS = (
+    "algorithmic",
+    "algorithm_version",
+    "algorithm_mode",
+    "analysis_created_at",
+    "analysis_candle_close",
+    "analysis_summary",
+)
 
 
 class PlanChangedError(ValueError):
@@ -78,6 +86,9 @@ def build_plan(sig, *, approved_bounds=None, watch_id=None):
     manual = sig.get("manual_override", False)
     if type(manual) is not bool:
         raise ValueError("Manual override must be explicitly enabled with a boolean flag")
+    algorithmic = sig.get("algorithmic", False)
+    if type(algorithmic) is not bool or (algorithmic and manual):
+        raise ValueError("Algorithm mode requires normal risk checks; manual override is separate")
     warnings = []
     em.require_trade_permission()
     if sc.RISK_PCT != 1 or MAX_POSITION_USDT != 12 or MAX_OPEN_TRADES != 1:
@@ -89,6 +100,8 @@ def build_plan(sig, *, approved_bounds=None, watch_id=None):
     ticker = c.get_ticker(symbol=symbol)
     if ticker.get("symbol") != symbol:
         raise ValueError("Ticker identity mismatch")
+    if algorithmic and not em.D(-15) <= em.D(ticker["priceChangePercent"]) <= em.D(25):
+        raise ValueError("Algorithm: 24h move outside strategy limits (-15% to +25%)")
     quote_volume = em.D(ticker["quoteVolume"])
     if quote_volume < 0:
         raise ValueError("Invalid quote volume")
@@ -214,6 +227,11 @@ def build_plan(sig, *, approved_bounds=None, watch_id=None):
         "manual_override": manual,
         "override_warnings": warnings,
     }
+    if algorithmic:
+        import algorithmic_planner as algo
+
+        plan.update({key: sig[key] for key in ALGORITHM_FIELDS})
+        algo.validate_plan(sig, plan)
     em.preflight(plan, f)
     return plan
 
@@ -224,6 +242,12 @@ def approval_bounds(old, fresh):
     ):
         return False
     if old.get("entry_mode", "legacy") != fresh.get("entry_mode", "legacy"):
+        return False
+    if any(
+        str(old.get(key, False if key == "algorithmic" else ""))
+        != str(fresh.get(key, False if key == "algorithmic" else ""))
+        for key in ALGORITHM_FIELDS
+    ):
         return False
     # Changing quantity, cost, risk or any exit level requires a NEW approval.
     return (
@@ -259,6 +283,7 @@ def execute(plan, *, approval=None):
             "t2": plan["t2"],
             "manual_override": plan.get("manual_override", False),
         }
+        sig.update({key: plan[key] for key in ALGORITHM_FIELDS if key in plan})
         sig["entry_mode"] = plan.get("entry_mode", "legacy")
         fresh = (
             build_plan(sig, approved_bounds=approval)
@@ -437,6 +462,9 @@ def advance_watch(rec):
         "entry_mode": "watch",
         "manual_override": plan["manual_override"] == "True",
     }
+    sig.update({key: plan[key] for key in ALGORITHM_FIELDS if key in plan})
+    if "algorithmic" in sig:
+        sig["algorithmic"] = sig["algorithmic"] == "True"
     try:
         fresh = build_plan(sig, approved_bounds=rec["approved_bounds"], watch_id=rec["id"])
         if not approval_bounds(rec["approved_bounds"], fresh):

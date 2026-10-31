@@ -2,6 +2,25 @@
 
 A Python-based Binance Spot Trading Assistant with Telegram integration.
 
+## Algorithmic proposal modes (v1.1.0)
+
+Send `/check COIN` → **3 - Trading options**:
+
+| Mode | You provide | Bot provides | Risk policy |
+| --- | --- | --- | --- |
+| Manual | Entry, SL, TP1, TP2 | Validation and bounded execution | Explicit manual override |
+| Assisted | TP1 and TP2 | Statistical entry cap and SL | Normal risk limits |
+| Auto Setup | Approval after reviewing the proposal | Statistical entry cap, SL, TP1, TP2 | Normal risk limits |
+
+Every mode requires a fresh Telegram approval. “EXIT” means the stop-loss trigger;
+profit-taking exits are TP1 and TP2. There is no autonomous buying and no AI model.
+The former fixed -3%/+5%/+8% preset has been replaced with data-based proposals.
+The existing background scanner's strategy is retained. These new algorithm modes
+are on-demand and use closed-candle trend/volatility/volume/structure checks.
+They can reject a setup rather than invent levels. See [ALGORITHM_DESIGN.md](ALGORITHM_DESIGN.md)
+for exact formulas, reviewed Binance/bot references, tests and unverified strategy
+performance. Later development-history sections describe previous UI versions.
+
 ## Features
 
 * Automatic market scanning every 15 minutes
@@ -88,7 +107,7 @@ cap to **12 USDT**. The user later explicitly authorized manual liquidity/strate
 and 1%/daily-loss overrides. Automatic policy remains unchanged. The entry point
 and selected policy are persisted in each new trade's plan and approved bounds.
 
-Choose **3 - Manual override** from a `/check` card, select an entry mode (described below),
+Choose **3 - Trading options → Manual** from a `/check` card, provide all four prices,
 and review the labeled override proposal. Selecting Manual or submitting levels
 does not itself place a buy. Trend/setup warnings do not block a manual plan.
 The bot uses the available balance up to the 12 USDT position cap for manual
@@ -299,7 +318,7 @@ Unknown outcomes are never reported as zero fill merely because the balance look
 unchanged. Confirmed zero-fill notifications do not offer an automatic retry.
 
 
-## Fast Telegram entry modes
+## Previous entry UI (superseded by v1.1.0 modes)
 
 Send `/check PARTI`, then choose **3 - Manual override**:
 

@@ -174,3 +174,27 @@ sell quantities; dust, account activity by others, exchange outages and extreme
 slippage can still expose funds. Optional presets are human-approved manual
 levels with explicit strategy/account-risk exceptions, not safe recommendations.
 The automatic scanner's strategy and numeric defaults are unchanged.
+
+## Algorithmic proposal follow-up (v1.1.0)
+
+Implementation review checked closed-candle/freshness validation, server-time
+boundaries, confirmed-pivot causality, conservative fee/precision-adjusted target
+profit, and copied strategy identity through final planning and persisted watches.
+Algorithm mode cannot enable manual exceptions; identity, metadata, exit levels
+and approved quantity/cost/risk limits remain bound. New reads cannot submit an
+order; all modes still require the existing explicit approval path. Changed
+support/resistance/regime cancels a setup rather than modifying its authorized
+levels. Recovery of already-acquired coins remains independent of the strategy.
+
+The review also identified coarse quantity-step loss being missed by a purely
+per-unit reward/risk check. The algorithm now rejects a non-positive conservative
+full-target scenario, with a dedicated regression. The original manual policy
+and scanner are unchanged. Synthetic data has deterministic exchange time to
+avoid candle-boundary test flakiness.
+
+This remains an implementation review and automated test/static-analysis result,
+not an independent strategy audit or proof of profitability. Public Freqtrade and
+OctoBot documentation was compared for interface/validation practices only; no
+other bot was run or connected. Historical walk-forward validation, real execution
+conditions and an independent human review remain outstanding. Details and exact
+rules are in ALGORITHM_DESIGN.md.

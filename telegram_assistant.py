@@ -8,8 +8,8 @@ B) ON DEMAND: send /check (or /check_ticker or /check-ticker) -> it asks for the
        WARNING - WAIT 15 MIN  -> buttons: 2 Recheck in 15 min | 3 Manual | Cancel
    1 -> shows Entry / SL / TP1 / TP2 / size / $ at risk with [Approve] [Reject]
    2 -> rechecks after 15 minutes and sends you the updated status
-   3 -> explicit manual risk override: Enter now (STOP TP1 TP2), preset, or
-        Wait at my price (ENTRY STOP TP1 TP2); every path requires final approval.
+   3 -> Manual (ENTRY STOP TP1 TP2), Assisted (bot entry/stop, user targets),
+        or Auto Setup (all algorithmic levels); every path requires final approval.
    Approve -> live price re-check -> price-capped IOC buy -> 2 OCO exits (stop + targets), original stops retained after TP1.
 
 Safeguards (apply to ALL paths, including manual):
@@ -40,6 +40,7 @@ import uuid
 import requests
 from binance.exceptions import BinanceAPIException
 
+import algorithmic_planner as algo
 import entry_scanner as sc
 import exit_manager as em
 import safety
@@ -77,10 +78,12 @@ HELP = (
     "/cancel — cancel pending proposals, forms, rechecks and untriggered watches. "
     "Does NOT close a position or cancel its protective OCOs.\n\n"
     "After /check:\n"
-    "1 — scanner plan; 2 — recheck in 15 min; 3 — manual risk override\n"
-    "Use current price — type STOP TP1 TP2\n"
-    "Wait for my price — type ENTRY STOP TP1 TP2\n"
-    "Now preset — suggested levels without typing\n\n"
+    "1 — scanner plan; 2 — recheck in 15 min; 3 — trading options\n"
+    "Manual — type ENTRY STOP TP1 TP2 (explicit risk override)\n"
+    "Assisted — bot suggests entry/SL; type TP1 TP2\n"
+    "Auto Setup — bot calculates all levels; you still approve\n"
+    "Algorithm modes enforce normal risk limits and may skip unsuitable setups.\n"
+    "STOP (or EXIT) means the stop-loss trigger, not a guaranteed execution price.\n\n"
     "Proposal buttons: Details (full explanation), Approve or Reject. "
     "Buying always needs approval; one active/unresolved trade maximum."
 )
@@ -130,7 +133,12 @@ def proposal_text(sig, p, note):
     proceeds = (em.D(p["half"]) * em.D(p["t1"]) + em.D(p["rest"]) * em.D(p["t2"])) * (1 - fee)
     profit = proceeds - em.D(p["cost"])
     mode = p.get("entry_mode", "legacy")
-    kind = "Manual" if p.get("manual_override") is True else "Automated"
+    if p.get("algorithmic"):
+        kind = {"assisted": "Assisted", "semi": "Semi-automatic", "full": "Auto Setup"}[
+            p["algorithm_mode"]
+        ]
+    else:
+        kind = "Manual" if p.get("manual_override") is True else "Automated"
     timing = {
         "now": "Enter now",
         "watch": "Wait at my price (15 min)",
@@ -163,6 +171,8 @@ def proposal_text(sig, p, note):
         count = len(p.get("override_warnings", []))
         if count:
             lines.append(f"Exceptions: {count} checks overridden — see Details.")
+    if p.get("algorithmic"):
+        lines.append("Data-based suggestion; normal risk limits apply. No guaranteed outcome.")
     if "WARNING" in note.upper() or "downtrend" in note.lower():
         lines.append("Scanner warning — see Details.")
     lines += [f"Expires in {APPROVAL_TTL // 60} min. Details below."]
@@ -196,6 +206,12 @@ def proposal_details_text(sig, p, note):
             "No resting exchange buy. Stop observed before entry cancels the watch.",
             "Restart or quote-read failure cancels the watch; approve again. Gaps may still occur between checking and execution.",
             "/cancel stops an untriggered watch. One IOC attempt only.",
+        ]
+    if p.get("algorithmic"):
+        lines += [
+            "Algorithm: " + p["algorithm_version"],
+            p["analysis_summary"],
+            "Closed candles only; setup and risk rechecked before submission. Approved levels stay fixed.",
         ]
     if note:
         lines.append(note)
@@ -386,7 +402,7 @@ def send_check_card(res, title="CHECK", generation=None):
         ]
         row = [
             {"text": "1 - Enter (show plan)", "callback_data": f"C1:{cid}"},
-            {"text": "3 - Manual override", "callback_data": f"C3:{cid}"},
+            {"text": "3 - Trading options", "callback_data": f"C3:{cid}"},
         ]
     else:
         lines += ["🟡 STATUS: 2 - WARNING - WAIT 15 MINUTES", "Reasons:"] + [
@@ -394,7 +410,7 @@ def send_check_card(res, title="CHECK", generation=None):
         ]
         row = [
             {"text": "2 - Recheck in 15 min", "callback_data": f"C2:{cid}"},
-            {"text": "3 - Manual override", "callback_data": f"C3:{cid}"},
+            {"text": "3 - Trading options", "callback_data": f"C3:{cid}"},
         ]
     if res["note"]:
         lines += ["", res["note"]]
@@ -478,28 +494,43 @@ def handle_check_callback(cb, action, cid):
         recheck_timers.add(timer)
         timer.start()
     elif action in ("CN", "CW", "CQ"):
-        ack("Choose your levels, then approve the final proposal.")
+        ack("Review the calculated proposal before approving.")
         state.clear()
-        state.update(
-            step="manual",
-            symbol=res["symbol"],
-            status=res["status"],
-            entry_mode="watch" if action == "CW" else "now",
-            t=time.time(),
-        )
         if action == "CQ":
+            prepare_algorithm_proposal(res["symbol"])
+        elif action == "CW":
             try:
-                _, ask = ta.entry_quote(res["symbol"])
-                handle_manual(f"{ask * em.D('.97')} {ask * em.D('1.05')} {ask * em.D('1.08')}")
+                suggestion = algo.propose(res["symbol"])
+            except ValueError as error:
+                say("No assisted setup: " + safety.redact(str(error)))
+                return
             except Exception as error:
-                say(f"Cannot build preset: {safe(error)}")
+                say("Algorithm data unavailable: " + safe(error))
+                return
+            suggestion["algorithm_mode"] = "assisted"
+            state.update(step="algorithm_targets", signal=suggestion, t=time.time())
+            say(
+                f"Assisted setup | {res['symbol'][:-4]}/USDT\n"
+                f"Indicative entry cap: {sc.fmt(suggestion['entry'])}\n"
+                f"Stop loss: {sc.fmt(suggestion['stop'])}\n\n"
+                "Send TWO profit-target prices: TP1 TP2.\n"
+                "Targets must satisfy risk/reward and resistance checks. "
+                "The final entry quote may update before you approve. /cancel to stop."
+            )
         else:
-            say(manual_levels_prompt(res, state["entry_mode"]))
+            state.update(
+                step="manual",
+                symbol=res["symbol"],
+                status=res["status"],
+                entry_mode="watch",
+                t=time.time(),
+            )
+            say(manual_levels_prompt(res, "watch"))
     elif action == "C3":
-        ack("Manual override mode.")
+        ack("Choose a trading mode.")
         edit(
             item,
-            "MANUAL risk override selected. Strategy/liquidity and account-risk gates are bypassed.",
+            "Choose manual or algorithm-generated levels. Final approval is always required.",
         )
         state.clear()
         state.update(
@@ -510,24 +541,28 @@ def handle_check_callback(cb, action, cid):
             t=time.time(),
         )
         say(
-            f"Manual trade | {res['symbol'][:-4]}/USDT\n"
+            f"Trading options | {res['symbol'][:-4]}/USDT\n"
             f"Last checked price: {sc.fmt(res['price'])}\n\n"
-            "Choose how to enter:\n"
-            "Current price — you choose the stop and profit targets.\n"
-            "My price — wait up to 15 minutes for your entry price.\n"
-            "Preset levels — stop -3%, profit targets +5% and +8%.\n\n"
-            "Nothing is bought until you approve the final proposal.\n"
-            "Manual risk override: liquidity/strategy checks, 1% sizing and the 3 USDT daily-loss gate are bypassed.\n"
-            "12 USDT cap, one active trade and protective OCOs still apply.\n"
+            "Manual — you choose Entry, SL, TP1 and TP2.\n"
+            "Assisted — the bot suggests entry/SL; you choose TP1/TP2.\n"
+            "Auto Setup — the bot calculates all levels for your approval.\n\n"
+            "Algorithm modes enforce normal liquidity, 1% risk and 3 USDT daily-loss limits. "
+            "Manual mode retains its explicit risk override.\n"
+            "All modes: 12 USDT cap, one active trade, protective OCOs and final approval.\n"
             "/cancel to stop.",
             reply_markup=json.dumps(
                 {
                     "inline_keyboard": [
-                        [{"text": "Use current price", "callback_data": f"CN:{cid}"}],
-                        [{"text": "Wait for my price", "callback_data": f"CW:{cid}"}],
+                        [{"text": "Manual — set all prices", "callback_data": f"CN:{cid}"}],
                         [
                             {
-                                "text": "Use preset levels (-3%, +5%, +8%)",
+                                "text": "Assisted — choose profit targets",
+                                "callback_data": f"CW:{cid}",
+                            }
+                        ],
+                        [
+                            {
+                                "text": "Auto Setup — calculate all levels",
                                 "callback_data": f"CQ:{cid}",
                             }
                         ],
@@ -538,13 +573,58 @@ def handle_check_callback(cb, action, cid):
         )
 
 
+def prepare_algorithm_proposal(symbol, entry=None):
+    try:
+        sig = algo.propose(symbol, entry=entry)
+        plan = ta.build_plan(sig)
+    except ValueError as error:
+        say("No algorithm proposal: " + safety.redact(str(error)))
+        return False
+    except Exception as error:
+        say("Algorithm data unavailable: " + safe(error) + ". No order submitted.")
+        return False
+    return send_proposal(
+        sig, plan, "Algorithm-calculated levels. Review the chart and Details before approving."
+    )
+
+
+def handle_algorithm_targets(text):
+    try:
+        values = text.replace(",", " ").split()
+        if len(values) != 2:
+            raise ValueError("Two prices required")
+        t1, t2 = (em.D(value) for value in values)
+        suggestion = dict(state["signal"])
+        if not em.D(suggestion["entry"]) < t1 < t2:
+            raise ValueError("Entry < TP1 < TP2 required")
+    except ValueError:
+        say("Send TWO prices above entry, with TP1 below TP2. /cancel to stop.")
+        return
+    suggestion.update(t1=t1, t2=t2)
+    suggestion["analysis_summary"] += (
+        " User-selected targets; normal algorithm validation still applies."
+    )
+    state.clear()
+    try:
+        plan = ta.build_plan(suggestion)
+    except ValueError as error:
+        say("No assisted proposal: " + safety.redact(str(error)))
+        return
+    except Exception as error:
+        say("Algorithm data unavailable: " + safe(error))
+        return
+    send_proposal(
+        suggestion, plan, "Bot-calculated entry/stop; your profit targets. Review before approval."
+    )
+
+
 def manual_levels_prompt(res, mode):
     price = em.D(res["price"])
     stops = [price * em.D(multiplier) for multiplier in (".97", "1.04", "1.07")]
     watch = mode == "watch"
     values = [price, *stops] if watch else stops
     return (
-        f"{'Wait for my price' if watch else 'Use current price'} | {res['symbol'][:-4]}/USDT\n\n"
+        f"{'Manual prices' if watch else 'Manual — current price'} | {res['symbol'][:-4]}/USDT\n\n"
         f"Send {'4' if watch else '3'} prices in ONE message:\n"
         + ("ENTRY STOP TP1 TP2\n" if watch else "STOP TP1 TP2\n")
         + ("ENTRY = your maximum buy price\n" if watch else "")
@@ -776,6 +856,8 @@ def handle_message(msg):
     elif state.get("step") == "ticker" and text:
         state.clear()
         run_check(text)
+    elif state.get("step") == "algorithm_targets" and text:
+        handle_algorithm_targets(text)
     elif state.get("step") == "manual" and text:
         handle_manual(text)
 

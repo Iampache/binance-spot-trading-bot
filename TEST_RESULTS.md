@@ -395,3 +395,25 @@ exceptions, hard limits, watch behavior and execution logic are unchanged.
 Full local suite remains **277 passed, 3 native Windows skips**, three upstream
 warnings; the updated focused fast-flow regression also passes. Ruff/format,
 Bandit and whitespace checks pass. No live account access or real trades.
+
+## Rules-based algorithm modes (v1.1.0)
+
+Thirty-three additional offline cases use synthetic, timestamped OHLCV histories
+behind actual pinned-SDK public-read methods. They cover Wilder indicator values,
+closed-bar exclusion, malformed/gapped/reversed/future/stale data, symbol/BTC trend,
+resistance and full-fee rejection, fixed risk gates, coarse quantity-step profit,
+analysis age/identity binding, approved protected entry, support changes after
+display, persisted algorithm watches, Assisted user-target validation, Auto Setup
+requiring approval, and cancellation of unfinished inputs. Existing manual/UI
+assertions now follow the new three-mode labels while retaining explicit manual
+exceptions, hard limits and no writes before approval.
+
+No production credential, Binance account/market endpoint, live trade or Telegram
+service was accessed. Research read only public Binance API and open-source bot
+documentation on GitHub. There is no historical performance backtest or validated
+win rate; passing these simulations does not establish profitable trading.
+
+Final local result: **310 passed, 3 native Windows skips**, three unsuppressed
+upstream websockets deprecation warnings. Ruff lint/format, Bandit, pip dependency
+and whitespace checks pass. Native Windows verification of this version remains
+pending. No strategy profitability or live-acceptance claim is made.

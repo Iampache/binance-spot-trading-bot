@@ -203,18 +203,14 @@ def test_telegram_fast_flow_and_presets_still_require_approval(sim, monkeypatch)
     keyboard = json.loads(messages[-1][1]["reply_markup"])
     assert any(b["callback_data"] == "CN:x" for row in keyboard["inline_keyboard"] for b in row)
     labels = {b["text"] for row in keyboard["inline_keyboard"] for b in row}
-    assert {"Use current price", "Wait for my price"} <= labels
+    assert {"Manual — set all prices", "Assisted — choose profit targets"} <= labels
     assert "Send 4 numbers" not in messages[-1][0]
     tg.handle_check_callback({"id": "cb"}, "CN", "x")
-    assert "Send 3 prices in ONE message" in messages[-1][0]
+    assert "Send 4 prices in ONE message" in messages[-1][0]
     assert "STOP = stop-loss trigger price" in messages[-1][0]
-    tg.handle_manual("97 105 108")
-    assert next(iter(tg.pending.values()))["plan"]["entry_mode"] == "now"
+    tg.handle_manual("100 97 105 108")
+    assert next(iter(tg.pending.values()))["plan"]["entry_mode"] == "watch"
     assert not sim.writes
-    tg.pending.clear()
-    tg.handle_check_callback({"id": "cb"}, "CQ", "x")
-    assert tg.pending and not sim.writes
-    assert any("maximum buy price" in text for text, _ in messages)
 
 
 @pytest.mark.parametrize("checkpoint", range(1, 13))

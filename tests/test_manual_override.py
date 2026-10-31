@@ -202,17 +202,18 @@ def test_manual_warning_card_uses_override_label_and_collects_levels_without_buy
     tg.send_check_card(result)
     kb = json.loads(messages[-1][1]["reply_markup"])
     assert any(
-        button["text"] == "3 - Manual override" for row in kb["inline_keyboard"] for button in row
+        button["text"] == "3 - Trading options" for row in kb["inline_keyboard"] for button in row
     )
     card = next(iter(tg.checks))
     tg.handle_check_callback({"id": "cb"}, "C3", card)
-    assert any("3 USDT daily-loss gate" in text for text, _ in messages)
+    assert any("Manual mode retains its explicit risk override" in text for text, _ in messages)
     low_volume(sim)
     tg.handle_manual("100 99.5 100.2 101")
     assert tg.pending
     item = next(iter(tg.pending.values()))
     assert item["sig"]["manual_override"] is True
     assert item["plan"]["manual_override"] is True
+    assert "3 USDT daily-loss gate" in item["text"]
     assert not sim.writes
 
 
