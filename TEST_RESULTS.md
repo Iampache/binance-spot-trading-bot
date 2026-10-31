@@ -509,3 +509,19 @@ Full local result: **370 passed, 3 native Windows skips**, three upstream warnin
 Ruff/format, Bandit, dependency and whitespace checks pass. No live Binance or
 Telegram service, production credentials or real trades were used. Opening these
 links remains a user action; the agent did not access a Binance account.
+
+## Correct selector cancellation and token heading (v1.1.7)
+
+Nine new regressions verify clearing the latest menu rather than its parent,
+explicit empty keyboard payloads, stale callback rejection/cleanup, global cancel
+of selectors and proposals, successful manual proposal consuming its selector,
+expired selector/input cleanup, canceled generations, edit-failure backend safety,
+and cancel/recovery with an existing protected trade retaining its inventory and
+OCO coverage without additional exchange orders. Existing lifecycle/crash tests
+continue to verify durable recovery. The alert heading assertion now expects
+Potential Token Detected; no financial setting or execution policy changed.
+
+Full local result: **379 passed, 3 native Windows skips**, three upstream warnings.
+Ruff/format, Bandit, dependency and whitespace checks pass. No live account access,
+Telegram service or real trades were used. Actual Windows execution remains to be
+verified by CI/user; Telegram delivery availability is not guaranteed by mocks.

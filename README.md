@@ -614,3 +614,27 @@ A proposal alone is not described as an active position. No state is cleared and
 no risk/ownership/duplicate-instance or approval check is weakened. Typed
 `ActiveTradeError` remains a ValueError for existing handlers; regressions assert
 the gate itself instead of depending on the retired generic wording.
+
+## Cancel controls and restart with a position open (v1.1.7)
+
+Telegram message edits explicitly remove consumed keyboards. Opening Trading
+options retires the original check controls and tracks the new menu's own message
+ID. Cancel, expiry and successful proposal creation retire that current selector;
+replayed callbacks from replaced/expired menus cannot initiate another plan.
+Global `/cancel` invalidates local inputs, selections and approvals before editing
+their messages. Expiry also clears the associated input form. A Telegram edit
+failure can leave old buttons visually cached, but their backend actions remain
+invalid; another press attempts keyboard cleanup. Pending proposal Details remains
+read-only and does not consume its valid approval buttons.
+
+The alert heading is now **Potential Token Detected**. Symbols remain USDT pairs.
+
+Updating code does not delete the ignored `runtime_state` journals. With a filled
+trade open, stop the assistant in CMD using Ctrl+C, wait for shutdown, then pull
+and test. Existing OCO orders continue on Binance, while local monitoring/recovery
+pauses. Restart from the same checkout with the same account/environment and keep
+`runtime_state` unchanged. The bot loads saved order/client IDs and execution
+records and reconciles what actually happened, including exits filled while it was
+offline. It does not repeat the original buy. Pending unapproved proposals/forms
+are process-local, and untriggered entry watches are canceled on restart under
+the existing policy. You do not need to close the Telegram app or cancel OCOs.

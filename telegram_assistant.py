@@ -122,8 +122,26 @@ def edit(item, status):
         chat_id=CHAT_ID,
         message_id=item["mid"],
         text=text,
+        reply_markup=json.dumps({"inline_keyboard": []}),
         **ticker_link_options(text),
     )
+
+
+def clear_callback_keyboard(cb):
+    mid = cb.get("message", {}).get("message_id")
+    if type(mid) is int:
+        tg(
+            "editMessageReplyMarkup",
+            chat_id=CHAT_ID,
+            message_id=mid,
+            reply_markup=json.dumps({"inline_keyboard": []}),
+        )
+
+
+def finish_mode_menu(cid):
+    item = checks.pop(cid, None)
+    if item:
+        edit(item, "Proposal sent below. Use Approve or Reject on that proposal.")
 
 
 def mode_label():
@@ -316,6 +334,9 @@ def expire_pending():
     for cid, card in list(checks.items()):
         if now - card["created"] > CHECK_TTL:
             checks.pop(cid, None)
+            if state.get("menu_id") == cid:
+                state.clear()
+            edit(card, "EXPIRED. Send /check again.")
 
 
 # ---------- /check analysis ----------
@@ -426,6 +447,10 @@ def send_check_card(res, title="CHECK", generation=None):
     if r.get("ok"):
         with pend_lock:
             if generation is not None and generation != proposal_generation:
+                edit(
+                    {"mid": r["result"]["message_id"], "text": text},
+                    "CANCELLED. This selection can no longer be used.",
+                )
                 return
             checks[cid] = dict(
                 res=res, created=time.time(), mid=r["result"]["message_id"], text=text
@@ -456,17 +481,26 @@ def handle_check_callback(cb, action, cid):
 
     item = checks.get(cid)
     if not item:
+        clear_callback_keyboard(cb)
         ack("Expired. Send /check again.")
+        return
+    clicked_mid = cb.get("message", {}).get("message_id")
+    if type(clicked_mid) is int and clicked_mid != item.get("mid"):
+        clear_callback_keyboard(cb)
+        ack("This menu was replaced. Use the latest menu.")
         return
     if time.time() - item["created"] > CHECK_TTL:
         checks.pop(cid, None)
+        if state.get("menu_id") == cid:
+            state.clear()
         ack("Expired.")
         edit(item, "EXPIRED. Send /check again.")
         return
     res = item["res"]
     if action == "CX":
         checks.pop(cid, None)
-        state.clear()
+        if state.get("menu_id") == cid:
+            state.clear()
         ack("Cancelled.")
         edit(item, "CANCELLED.")
     elif action == "C1":
@@ -503,7 +537,8 @@ def handle_check_callback(cb, action, cid):
         ack("Review the calculated proposal before approving.")
         state.clear()
         if action == "CQ":
-            prepare_algorithm_proposal(res["symbol"])
+            if prepare_algorithm_proposal(res["symbol"]):
+                finish_mode_menu(cid)
         elif action == "CW":
             try:
                 suggestion = algo.propose(res["symbol"])
@@ -514,7 +549,7 @@ def handle_check_callback(cb, action, cid):
                 say("Algorithm data unavailable: " + safe(error))
                 return
             suggestion["algorithm_mode"] = "assisted"
-            state.update(step="algorithm_targets", signal=suggestion, t=time.time())
+            state.update(step="algorithm_targets", signal=suggestion, menu_id=cid, t=time.time())
             say(
                 f"Assisted setup | {res['symbol'][:-4]}/USDT\n"
                 f"Indicative entry cap: {sc.fmt(suggestion['entry'])}\n"
@@ -529,6 +564,7 @@ def handle_check_callback(cb, action, cid):
                 symbol=res["symbol"],
                 status=res["status"],
                 entry_mode="watch",
+                menu_id=cid,
                 t=time.time(),
             )
             say(manual_levels_prompt(res, "watch"))
@@ -544,9 +580,10 @@ def handle_check_callback(cb, action, cid):
             symbol=res["symbol"],
             status=res["status"],
             entry_mode="watch",
+            menu_id=cid,
             t=time.time(),
         )
-        say(
+        text = (
             f"Trading options | {res['symbol'][:-4]}/USDT\n"
             f"Last checked price: {sc.fmt(res['price'])}\n\n"
             "Manual — you choose Entry, SL, TP1 and TP2.\n"
@@ -555,7 +592,10 @@ def handle_check_callback(cb, action, cid):
             "Algorithm modes enforce normal liquidity, 1% risk and 3 USDT daily-loss limits. "
             "Manual mode retains its explicit risk override.\n"
             "All modes: 12 USDT cap, one active trade, protective OCOs and final approval.\n"
-            "/cancel to stop.",
+            "/cancel to stop."
+        )
+        result = say(
+            text,
             reply_markup=json.dumps(
                 {
                     "inline_keyboard": [
@@ -577,6 +617,12 @@ def handle_check_callback(cb, action, cid):
                 }
             ),
         )
+
+        if result and result.get("ok"):
+            checks[cid] = {**item, "mid": result["result"]["message_id"], "text": text}
+        else:
+            checks.pop(cid, None)
+            state.clear()
 
 
 def prepare_algorithm_proposal(symbol, entry=None):
@@ -610,6 +656,7 @@ def handle_algorithm_targets(text):
     suggestion["analysis_summary"] += (
         " User-selected targets; normal algorithm validation still applies."
     )
+    menu_id = state.get("menu_id")
     state.clear()
     try:
         plan = ta.build_plan(suggestion)
@@ -619,9 +666,10 @@ def handle_algorithm_targets(text):
     except Exception as error:
         say("Algorithm data unavailable: " + safe(error))
         return
-    send_proposal(
+    if send_proposal(
         suggestion, plan, "Bot-calculated entry/stop; your profit targets. Review before approval."
-    )
+    ):
+        finish_mode_menu(menu_id)
 
 
 def manual_levels_prompt(res, mode):
@@ -686,6 +734,7 @@ def handle_manual(text):
         rsi=0,
         chg24=0,
     )
+    menu_id = state.get("menu_id")
     state.clear()
     try:
         plan = ta.build_plan(sig)
@@ -695,11 +744,12 @@ def handle_manual(text):
     except Exception as e:
         say(f"Error while building the plan: {safe(e)}")
         return
-    send_proposal(
+    if send_proposal(
         sig,
         plan,
         f"MANUAL entry. Scanner status was: {status}. The levels are yours, not the scanner's.",
-    )
+    ):
+        finish_mode_menu(menu_id)
 
 
 # ---------- execution ----------
@@ -739,6 +789,8 @@ def handle_callback(cb):
             callback_query_id=cb["id"],
             text="Expired or already used." if expired else "Proposal details",
         )
+        if expired:
+            clear_callback_keyboard(cb)
         if not expired:
             text = "DETAILS — VIEW ONLY; approve only on the original proposal.\n\n" + details
             for start in range(0, len(text), 3500):
@@ -747,6 +799,7 @@ def handle_callback(cb):
     with pend_lock:
         item = pending.pop(pid, None)
     if not item:
+        clear_callback_keyboard(cb)
         tg(
             "answerCallbackQuery",
             callback_query_id=cb["id"],
@@ -833,11 +886,14 @@ def handle_message(msg):
         say(HELP)
     elif low.startswith("/cancel"):
         state.clear()
-        checks.clear()
         with pend_lock:
             proposal_generation += 1
+            canceled_checks = list(checks.values())
+            checks.clear()
             canceled = list(pending.values())
             pending.clear()
+        for card in canceled_checks:
+            edit(card, "CANCELLED. This selection can no longer be used.")
         for item in canceled:
             edit(item, "CANCELLED. This proposal can no longer be approved.")
         for timer in list(recheck_timers):
@@ -873,7 +929,7 @@ def handle_message(msg):
 def candidate_card(symbol, sig, status, reason, note):
     marker = "🔴" if status in ("Blocked", "Not delivered / canceled") else "🟡"
     lines = [
-        "Potential Candidate Detected",
+        "Potential Token Detected",
         f"🔵 Ticker: {symbol}",
         f"{marker} Current status: {status}",
         f"Reason for rejection: {reason}",

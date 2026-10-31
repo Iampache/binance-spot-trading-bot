@@ -126,7 +126,7 @@ def test_active_trade_block_still_displays_all_levels_without_new_approval(scan,
         assert f"{field}: {value}" in result
     assert "fresh executable proposal" in result
     telegram = "\n".join(scan)
-    assert "Potential Candidate Detected" in telegram
+    assert "Potential Token Detected" in telegram
     assert "Reason for rejection: FOOUSDT entry is pending confirmation" in telegram
     assert "\nEntry: 100\nSL: 97\nTP1: 104.5\nTP2: 107.5\n" in telegram
     assert "SCAN RESULTS" not in telegram and "Git:" not in telegram

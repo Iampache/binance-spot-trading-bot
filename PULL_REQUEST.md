@@ -30,7 +30,7 @@ explicit fill-time USDT reference valuation; missing fee evidence blocks final P
 not protection/liquidation. Pending approval cancellation never removes existing
 OCOs. Active closing remains available through the existing confirmed CLI path.
 
-Validation: **370 passed, 3 native Windows skips**, three upstream deprecation
+Validation: **379 passed, 3 native Windows skips**, three upstream deprecation
 warnings; Ruff/format, Bandit, pip dependency and whitespace checks pass. Tests use
 actual SDK transport simulations with sockets/HTTP forbidden.
 See TEST_RESULTS.md for exact totals, SECURITY_REVIEW.md for the implementation
@@ -78,3 +78,10 @@ UTF-16 emoji offsets, with web previews disabled and no rich-text mode changes.
 The existing durable trade gate names the actual pair and distinguishes a same-
 pair position from another occupied slot, a pending entry/watch or reconciliation.
 No proposal is falsely labeled an active trade, and no blocking checks are removed.
+
+
+Cancel/expiry now remove the current selector's keyboard and invalidate its
+callback/input state. Replaced parent messages cannot invoke the new menu;
+successful proposal delivery retires the selector while preserving the new
+approval controls. UI cancellation leaves existing protected positions and durable
+recovery untouched. The candidate heading is Potential Token Detected.
