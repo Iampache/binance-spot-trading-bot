@@ -244,3 +244,26 @@ changes. BNB valuation is a documented reference-price convention, not a claim o
 exact agreement with Binance's internal conversion. The implementation uses the
 public commission FAQ as the rate-semantics reference:
 https://github.com/binance/binance-spot-api-docs/blob/master/faqs/commission_faq.md
+
+
+## Explicit entry and IOC zero-fill outcomes
+
+The user confirmed a PARTIUSDT LIMIT IOC buy expired with executed quantity zero.
+The old UI acknowledged approval but did not report that terminal zero-fill
+outcome, while `/status` only reported no active positions. This was a reporting
+gap; it did not establish a filled position or justify an automatic buy retry.
+
+Seven new offline regressions cover zero-fill expiry with unchanged balances,
+no OCO placement and no retry; persisted/reported sanitized rejection codes;
+protection messages sent only after actual list/coverage verification; partial
+entry liquidation distinguished from no fill; unknown buys never reported as
+zero fill; final approval-bound failures reported before submission; and exits
+already completed before a protection notification. Status retains the latest
+saved entry result when the journal is closed. Pricing, approval bounds and
+no-blind-retry policy are unchanged.
+
+Final local result: **202 passed, 3 skipped**, with three upstream warnings. Native
+Windows launcher skips remain unchanged. Lint, formatting, Bandit, dependency and
+whitespace checks pass. No live account was accessed and no real trade was
+executed by the implementing agent. The native live expiry evidence came from
+the user's provided history/status, not an agent-side account connection.

@@ -440,6 +440,11 @@ def handle_manual(text):
 def run_trade(plan, approval):
     try:
         ta.execute(plan, approval=approval)
+    except ta.PlanChangedError:
+        em.alert(
+            "NOT SUBMITTED: final market/size/risk checks exceeded the approved bounds. "
+            "No buy was submitted. Request and approve a fresh proposal."
+        )
     except BinanceAPIException as e:
         em.alert(safe(e))
     except Exception as e:
@@ -502,7 +507,11 @@ def handle_callback(cb):
         send_proposal(item["sig"], fresh, "Updated plan; previous approval was not used.")
         return
 
-    edit(item, "APPROVED. Placing the order and the exits now...")
+    edit(
+        item,
+        "APPROVAL RECEIVED. Final checks are running; execution is not yet confirmed. "
+        "Wait for the entry-result and protection notifications.",
+    )
     approval = {
         **old,
         "approval_id": pid,

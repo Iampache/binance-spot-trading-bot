@@ -17,6 +17,10 @@ MAX_PRICE_DRIFT_PCT = Decimal("0.5")
 LIVE = not em.USE_TESTNET
 
 
+class PlanChangedError(ValueError):
+    """Final approval bounds changed before any buy was submitted."""
+
+
 def scan_candidates():
     note = sc.btc_note()
     candidates = {}
@@ -231,7 +235,7 @@ def execute(plan, *, approval=None):
         }
         fresh = build_plan(sig)
         if not approval_bounds(approval, fresh):
-            raise ValueError("Market/risk changed; send a new proposal for approval")
+            raise PlanChangedError("Market/risk changed; send a new proposal for approval")
         plan = fresh
         f = em.symbol_filters(plan["symbol"])
         rec = em.new_trade(plan, approval=approval)
@@ -244,15 +248,63 @@ def execute(plan, *, approval=None):
         try:
             em.submit_order(rec, item)
             if item["status"] != "FILLED":
-                # Reconciliation persists partial fills, cancels remaining buy and
-                # unwinds only confirmed ownership. Unknown results never liquidate.
+                if em.D(item["executedQty"]) > 0:
+                    em.alert(
+                        "PARTIAL BUY REQUIRES RECONCILIATION. "
+                        + em.entry_result(rec)
+                        + ". Confirmed acquired quantity is being reconciled; do not retry the buy."
+                    )
+                # Reconcile partial fills or cancel a still-open buy before
+                # reporting a final outcome. Never infer zero fill from balance.
                 em.reconcile_trade(rec)
+                buy_result = next(order for order in rec["orders"] if order["purpose"] == "buy")
+                if buy_result["status"] in em.TERMINAL and em.D(buy_result["executedQty"]) == 0:
+                    explanation = (
+                        "The price-capped IOC did not execute; no coins were acquired."
+                        if buy_result["status"] in ("EXPIRED", "CANCELED", "EXPIRED_IN_MATCH")
+                        else "The buy was rejected with zero confirmed execution."
+                    )
+                    em.alert(
+                        "NO BUY FILLED. "
+                        + em.entry_result(rec)
+                        + ". "
+                        + explanation
+                        + " No automatic buy retry; a fresh proposal needs approval."
+                    )
+                elif rec["state"] == "closed":
+                    em.alert(
+                        "PARTIAL ENTRY RECONCILED. "
+                        + em.entry_result(rec)
+                        + ". Confirmed acquired inventory has been closed and accounted for."
+                    )
+
             else:
                 rec["state"] = "bought"
                 em.save_trade(rec)
                 em.submit_protection(
                     rec, em.inventory(rec), plan["t1"], plan["t2"], plan["stop"], f
                 )
+                remaining, covered = em.inventory(rec), em.coverage(rec)
+                if remaining > 0 and covered >= remaining:
+                    em.alert(
+                        "BUY FILLED / PROTECTION CONFIRMED. "
+                        + em.entry_result(rec)
+                        + f". Remaining bot quantity {remaining}; observed stop coverage {covered}; "
+                        f"{len(rec['oco'])} OCO lists verified. Use /status for current state."
+                    )
+                elif remaining == 0:
+                    em.alert(
+                        "BUY FILLED; exits already executed. "
+                        + em.entry_result(rec)
+                        + ". Position accounting is being reconciled."
+                    )
+                else:
+                    em.alert(
+                        "BUY FILLED; COVERAGE INCOMPLETE. "
+                        + em.entry_result(rec)
+                        + f". Remaining {remaining}; observed stop coverage {covered}. "
+                        "Recovery is reconciling the uncovered inventory; inspect Binance."
+                    )
         except Exception as error:
             rec["state"] = "needs_attention"
             em.save_trade(rec)

@@ -655,7 +655,7 @@ def submit_order(rec, item):
             )
     except Exception as error:
         if ex.definitely_rejected(error):
-            item.update(status="REJECTED", local_rejection=True)
+            item.update(status="REJECTED", local_rejection=True, rejection=safety.safe_error(error))
             save_trade(rec)
             return item
         # Lookup even when the write timed out; query failures remain uncertain.
@@ -1155,13 +1155,31 @@ def operation_lock():
                 LOCK_STATE.active = False
 
 
+def entry_result(rec):
+    """Describe journal evidence only; do not infer fills from approval/balance."""
+    buy = next((order for order in rec["orders"] if order["purpose"] == "buy"), None)
+    if buy is None:
+        return f"{rec['symbol']}: no buy request journaled; record {rec['state']}"
+    result = (
+        f"{rec['symbol']}: buy {buy['status']}; executed {buy['executedQty']}; "
+        f"record {rec['state']}"
+    )
+    if buy.get("orderId") is not None:
+        result += f"; Binance order {buy['orderId']}"
+    if buy.get("rejection"):
+        result += "; " + buy["rejection"]
+    return result
+
+
 def status_report():
     get_client()
     ensure_context()
     balance = get_client().get_asset_balance(asset="USDT")["free"]
     lines = [f"USDT free: {balance}"]
     with operation_lock():
-        for rec in active_trades():
+        records = load_trades()
+        active = [rec for rec in records if rec["state"] != "closed"]
+        for rec in active:
             try:
                 # /status never submits or cancels an order.
                 refresh(rec)
@@ -1172,8 +1190,11 @@ def status_report():
                 lines.append(
                     f"{rec['symbol']}: {rec['state']}; coverage UNKNOWN; {safety.safe_error(error)}"
                 )
-    if len(lines) == 1:
-        lines.append("No active bot positions")
+        if not active:
+            lines.append("No active bot positions")
+        if records:
+            last = max(records, key=lambda rec: rec["created_utc"])
+            lines.append("Latest saved entry: " + entry_result(last))
     return "\n".join(lines)
 
 

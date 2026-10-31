@@ -270,3 +270,30 @@ send Telegram summaries with these details; set the flag to false for console-on
 summaries. Only successfully registered proposals start their alert cooldown.
 A candidate is not an order, and a proposal still requires your approval. No
 symbol can be recovered from an old count-only log line without other records.
+
+
+## Approval and actual execution outcomes
+
+Telegram approval authorizes an entry attempt; it does not establish a fill.
+Entries are price-capped LIMIT IOC orders. An accepted IOC can expire immediately
+with executed quantity zero if it cannot execute within its limit. No asset is
+acquired in that case, no protective exits are needed for that attempt, and the
+bot does not automatically retry the buy or change its price cap.
+
+The proposal acknowledgement now explicitly says execution is not yet confirmed.
+Subsequent messages distinguish NO BUY FILLED (including EXPIRED/REJECTED and
+executed quantity), partial-entry reconciliation, filled entries with verified
+remaining stop coverage, already-executed exits and incomplete coverage. Final
+approval-bound failures before submission are explicitly reported as NOT SUBMITTED.
+
+`/status` includes the latest saved entry's buy status, executed quantity, journal
+state and known Binance order ID even when there are no active positions. This
+is the latest journaled attempt, not necessarily the latest clicked proposal:
+validation failure before journaling may not create a new record. Use the order
+ID to compare with Binance history. Older rejected records may lack an API error
+code; new rejections persist only sanitized numeric API/HTTP metadata.
+
+A successful protection notification is a verified snapshot, not a guarantee that
+orders cannot subsequently fill, be canceled externally, or become unavailable.
+Unknown outcomes are never reported as zero fill merely because the balance looks
+unchanged. Confirmed zero-fill notifications do not offer an automatic retry.

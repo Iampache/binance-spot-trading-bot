@@ -4,7 +4,7 @@ Partial fills, uncertain exchange responses and interrupted protection placement
 
 Entries now use price-capped IOC limits and single-use Telegram approvals with quantity, cost and risk ceilings. The automatic policy enforces Spot only, 10M USDT minimum volume, 1% planned risk, 12 USDT maximum position, one open trade and a 3 USDT daily loss threshold. A later user-authorized manual risk override bypasses liquidity/strategy, 1% sizing and the daily-loss gate, while retaining the 12 USDT cap, one active trade, exchange rules, OCO protection and bounded explicit approval. Incompatible two-OCO minimums are explained and skipped. Status, cancellation, manual entry and 15-minute rechecks are covered by offline regressions.
 
-Validation: 195 tests passed (three additional Windows-only launcher cases are skipped locally) with no failures/skips/expected failures and three unsuppressed upstream deprecation warnings. The simulator exercises the actual installed SDK interface with sockets/HTTP blocked, including 22 journal-write crash checkpoints. Baseline coverage details and subsequent regression results are recorded in TEST_RESULTS.md. Bandit reports no findings; Ruff, formatting, pip dependency checks and diff checks pass.
+Validation: 202 tests passed (three additional Windows-only launcher cases are skipped locally) with no failures/skips/expected failures and three unsuppressed upstream deprecation warnings. The simulator exercises the actual installed SDK interface with sockets/HTTP blocked, including 22 journal-write crash checkpoints. Baseline coverage details and subsequent regression results are recorded in TEST_RESULTS.md. Bandit reports no findings; Ruff, formatting, pip dependency checks and diff checks pass.
 
 See TEST_RESULTS.md for the regression mapping and SECURITY_REVIEW.md for the separate second review pass and unresolved risks. No real or testnet integration, production credential access, Telegram messaging or real trading occurred. The second manual review was performed by the implementing agent, with independent automated static analysis; an independent human review remains advisable.
 
@@ -25,3 +25,9 @@ prices; the account-reported discount applies only to standard fees. Full fee
 reserves and actual USDT fallback are retained. Reference valuation is not an
 exact claim about Binance's internal conversion, and BNBUSDT's fee-on-base case
 remains blocked. Missing valuation cannot delay protection or liquidation.
+
+Entry-result follow-up: approval acknowledgements no longer imply execution.
+Zero-fill IOC expiry, safe rejection metadata, partial-fill reconciliation,
+verified remaining OCO coverage and pre-submission approval changes have distinct
+notifications. `/status` retains the latest saved entry result and known order ID
+after closure. No pricing change, automatic buy retry or live execution was added.

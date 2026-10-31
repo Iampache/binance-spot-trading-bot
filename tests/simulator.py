@@ -264,13 +264,15 @@ class SpotSimulator:
             if behavior == "rejected":
                 raise api_error(-2010)
             order = self.make_order(data, data["side"])
-            if behavior not in ("new", "crash_before_fill"):
+            if behavior not in ("new", "crash_before_fill", "expired_empty"):
                 quantity = D(order["origQty"])
                 if behavior in ("partial", "expired"):
                     quantity = (quantity / 2 // D(".001")) * D(".001")
                 self.fill(order, qty=quantity, terminal=behavior not in ("partial", "expired"))
                 if behavior == "expired":
                     order["status"] = "EXPIRED"
+            if behavior == "expired_empty":
+                order["status"] = "EXPIRED"
             if behavior.startswith("crash"):
                 raise Crash()
             if behavior == "timeout_accept":
