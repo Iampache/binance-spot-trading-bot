@@ -2,6 +2,33 @@
 
 Binance Spot trading assistant with Telegram control. Concept & developed by Fazil.
 
+## Automatic scan notifications: proposals only (v1.9.0)
+
+Background scanning sends a Telegram message when a plan passes validation and
+offers **Approve / Reject / Details**. Blocked candidates, cooldowns and routine
+"no proposal" outcomes stay quiet. There is no duplicate candidate summary after
+a delivered proposal. Trade fills, stop/target outcomes, protection failures and
+reconciliation alerts retain their existing notification paths. Replies to your
+own `/check` or other commands remain available.
+
+Use `/scanlog` to request the latest automatic scan's candidate/outcome counts,
+skipped pairs, reasons and Dubai timestamp. This report is read-only, contains no
+approval controls, and does not scan again or submit an order. Long diagnostics
+are split without cutting normal pair/status lines. The process-local cache
+resets on restart; interrupted scans are labeled. Complete levels and technical
+validation diagnostics remain in the console logs.
+
+`/showpr` prioritizes the last successfully delivered proposal. Later skipped
+pairs cannot replace it. If no proposal has been delivered since startup, it can
+still show the last candidate preview on explicit request. All such snapshots
+are historical/view-only and cannot reactivate approval.
+
+The old `SCAN_CANDIDATE_NOTIFICATIONS` variable is retired and ignored, including
+when an existing `.env` contains `true`. No `.env` edit is needed. Pull and restart
+the assistant from the same folder, retaining `runtime_state`, to apply the policy.
+This changes notification delivery only: the 1.5R threshold, price/tick checks,
+liquidity, funds, risk, trade limits and fresh final approval remain enforced.
+
 ## Live position performance and portfolio risk (v1.8.0)
 
 Send `/position`, select a trade and use **Refresh** to update its performance.
@@ -562,7 +589,6 @@ Add these non-secret settings to this checkout's existing `.env` and restart:
 
 ```dotenv
 ALLOW_BNB_FEES=true
-SCAN_CANDIDATE_NOTIFICATIONS=true
 ```
 
 `ALLOW_BNB_FEES` defaults to false and enables the accounting support described
@@ -582,13 +608,14 @@ active remains blocked** pending a dedicated reserve for fees charged in the sam
 base asset as the position. The bot will explain that edge case rather than risk
 selling unrelated BNB or incorrectly declaring inventory flat.
 
-`SCAN_CANDIDATE_NOTIFICATIONS` defaults to true. Every scan names all candidate
-symbols in the console and reports each outcome: proposal sent, cooldown,
-validation refusal, API failure or Telegram delivery failure. Nonempty scans also
-send Telegram summaries with these details; set the flag to false for console-only
-summaries. Only successfully registered proposals start their alert cooldown.
-A candidate is not an order, and a proposal still requires your approval. No
-symbol can be recovered from an old count-only log line without other records.
+Every scan names all candidate symbols in the console and reports each outcome:
+proposal sent, cooldown, validation refusal, API failure or Telegram delivery
+failure. From v1.9.0, background Telegram scanning sends only reviewable proposals;
+`/scanlog` exposes skip diagnostics on request. The former
+`SCAN_CANDIDATE_NOTIFICATIONS` toggle is ignored. Only successfully registered
+proposals start their alert cooldown. A candidate is not an order, and a proposal
+still requires your approval. No symbol can be recovered from an old count-only
+log line without other records.
 
 
 ## Approval and actual execution outcomes
@@ -729,12 +756,13 @@ a crash after Telegram accepts a message but before its acknowledgement is saved
 can produce a duplicate with the same trade reference. Newer execution snapshots
 supersede undelivered older ones. Reporting never retries or creates an order.
 
-Candidate Telegram alerts use one compact card: “Potential Token Detected,”
+On-request candidate previews use one compact card: “Potential Token Detected,”
 ticker, current status, rejection/cooldown reason, and Entry/SL/TP1/TP2 on separate
 lines. They retain the preview-only notice and market warning. Repeated identity,
 mode banners and author/Git footers are omitted from routine cards. Full identity
-remains in startup output. SHOW PR uses the same compact
-candidate snapshot. Console diagnostics and execution policy are unchanged.
+remains in startup output. SHOW PR uses the same compact candidate snapshot only
+when no delivered proposal is available. V1.9.0 removes these previews from
+background Telegram delivery. Console diagnostics and execution policy are unchanged.
 
 ## Startup-only identity and execution narration
 
@@ -853,8 +881,9 @@ now have separate messages, including the checked entry/SL/TP1, required TP1 and
 original signal entry, rather than a combined ambiguous refusal. The 1%–6% stop
 range and 1.5R minimum are unchanged.
 
-A delivered scan proposal has Approve / Reject / Details buttons, and its summary
-candidate card says Awaiting approval. The three Manual / Assisted / Auto Setup
+A delivered scan proposal has Approve / Reject / Details buttons. V1.9.0 removes
+its duplicate candidate summary; `/scanlog` shows delivery status on request.
+The three Manual / Assisted / Auto Setup
 choices are opened through `/check COIN` → `3 - Trading options`; they are not
 buttons on the automatic scanner proposal. No passing candidate buys on its own.
 
@@ -922,7 +951,8 @@ failure can leave old buttons visually cached, but their backend actions remain
 invalid; another press attempts keyboard cleanup. Pending proposal Details remains
 read-only and does not consume its valid approval buttons.
 
-The alert heading is now **Potential Token Detected**. Symbols remain USDT pairs.
+The preview heading is **Potential Token Detected**. From v1.9.0 it appears only
+on an explicitly requested candidate snapshot. Symbols remain USDT pairs.
 
 Updating code does not delete the ignored `runtime_state` journals. With a filled
 trade open, stop the assistant in CMD using Ctrl+C, wait for shutdown, then pull

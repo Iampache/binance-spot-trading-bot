@@ -36,6 +36,7 @@ import os
 import threading
 import time
 import uuid
+from datetime import datetime
 
 import requests
 from binance.exceptions import BinanceAPIException
@@ -62,12 +63,10 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 APPROVAL_TTL = int(os.getenv("APPROVAL_TTL_SECONDS", "300"))
 CHECK_TTL = int(os.getenv("CHECK_TTL_SECONDS", "600"))
 AUTO_SCAN = os.getenv("AUTO_SCAN", "true").lower() == "true"
-SCAN_CANDIDATE_NOTIFICATIONS = (
-    os.getenv("SCAN_CANDIDATE_NOTIFICATIONS", "true").strip().lower() == "true"
-)
 API = f"https://api.telegram.org/bot{TOKEN}"
 
 last_preview = {}  # read-only snapshot for SHOW PR; never an approval source
+last_scan = {}  # on-demand diagnostics only; never a background Telegram summary
 pending = {}  # proposal id -> dict
 checks = {}  # /check card id -> dict
 discovery_views = {}  # ephemeral read-only discovery menus/results
@@ -90,6 +89,7 @@ HELP = (
     "/check ZRO or /scan ZRO — USDT is added automatically\n"
     "Full pairs such as ZROUSDT or ZRO/USDT also work.\n"
     "/check_ticker or /check-ticker — aliases for /check\n"
+    "/scanlog — view the last automatic scan and skipped pairs on request\n"
     "/status — balance, bot positions, stop coverage and entry watches\n"
     "/health — exchange checks, monitoring and entry blockers\n"
     "/position or /positions — numbered bot positions, details and confirmed exit\n"
@@ -367,7 +367,7 @@ def send_proposal(sig, plan, note):
             text=text,
             details=details,
         )
-        last_preview.update(text=text, saved_at=time.time())
+        last_preview.update(text=text, saved_at=time.time(), kind="proposal")
     return True
 
 
@@ -392,6 +392,60 @@ def show_last_proposal():
     )
     for start in range(0, len(text), 3500):
         say(text[start : start + 3500])
+
+
+def show_scan_log():
+    with pend_lock:
+        snapshot = dict(last_scan)
+    if not snapshot:
+        say("No automatic scan recorded since startup. Use /health to check the scanner.")
+        return
+    stamp = datetime.fromtimestamp(snapshot["saved_at"], trade_reporting.DUBAI).strftime(
+        "%d %b %Y %H:%M:%S Dubai"
+    )
+    lines = [
+        "LATEST SCAN — DIAGNOSTICS, VIEW ONLY",
+        f"Checked: {stamp}",
+        f"Candidates: {snapshot['candidates']} | Reviewed: {len(snapshot['outcomes'])} | Proposals delivered: {snapshot['sent']}",
+        "Skipped pairs stay quiet during automatic scanning. No approval is created by this report.",
+        "",
+    ]
+    if len(snapshot["outcomes"]) < snapshot["candidates"]:
+        lines.append("Scan interrupted before all candidates were reviewed.")
+    for item in snapshot["outcomes"]:
+        label = "Already alerted recently" if item["status"] == "Cooldown" else item["status"]
+        lines.append(f"{item['symbol']}: {label}")
+        if item["reason"]:
+            lines.append("Reason: " + item["reason"])
+    if not snapshot["outcomes"]:
+        lines.append("No chart candidates in this scan.")
+    if snapshot["note"]:
+        lines.extend(["", snapshot["note"]])
+    lines.extend(
+        [
+            "",
+            "Only the separate proposal message offers Approve/Reject. Use /check COIN for a fresh check.",
+        ]
+    )
+    chunk = ""
+    for line in lines:
+        # Preserve pair/status lines across message boundaries. Only an
+        # individually oversized diagnostic needs splitting within a line.
+        if len(line) > 3500:
+            if chunk:
+                say(chunk)
+                chunk = ""
+            for start in range(0, len(line), 3500):
+                say(line[start : start + 3500])
+            continue
+        joined = chunk + "\n" + line if chunk else line
+        if len(joined) > 3500:
+            say(chunk)
+            chunk = line
+        else:
+            chunk = joined
+    if chunk:
+        say(chunk)
 
 
 def expire_pending():
@@ -1036,6 +1090,8 @@ def handle_message(msg):
         send_welcome()
     elif command == "/help":
         say(HELP)
+    elif command == "/scanlog":
+        show_scan_log()
     elif command == "/health":
         try:
             report = bot_health.report(auto_scan=AUTO_SCAN)
@@ -1782,7 +1838,7 @@ def scan_once():
     cands, note = ta.scan_candidates()
     names = ", ".join(cands) or "none"
     sc.log.info("Scan candidates (%s): %s", len(cands), names)
-    results, cards, sent = [], [], 0
+    results, outcomes, sent = [], [], 0
     for sym, sig in cands.items():
         if em.STOP.is_set():
             break
@@ -1832,28 +1888,23 @@ def scan_once():
         except (ValueError, KeyError, TypeError):
             result += "\nCandidate levels unavailable: invalid or incomplete scanner signal."
         card = candidate_card(sym, sig, status, reason, note)
-        cards.append(card)
         if not delivered:
             with pend_lock:
-                last_preview.update(text=card, saved_at=time.time())
+                # A skipped pair must not bury an earlier delivered proposal.
+                if last_preview.get("kind") != "proposal":
+                    last_preview.update(text=card, saved_at=time.time(), kind="candidate")
+        outcomes.append({"symbol": sym, "status": status, "reason": reason})
         results.append(result)
         sc.log.info("%s", result)
     sc.log.info(
         "Scan done: %s candidate(s) [%s], %s proposal(s) sent. %s", len(cands), names, sent, note
     )
-    if cands and SCAN_CANDIDATE_NOTIFICATIONS:
-        lines = [card + "\n" for card in cards]
-        chunk = ""
-        for line in lines:
-            # Bound Telegram messages, retaining every candidate/reason across chunks.
-            for start in range(0, len(line) or 1, 3000):
-                piece = line[start : start + 3000]
-                if len(chunk) + len(piece) + 1 > 3500:
-                    say(chunk)
-                    chunk = ""
-                chunk += piece + "\n"
-        if chunk:
-            say(chunk.rstrip())
+    # Automatic Telegram interruptions are reserved for reviewable proposals.
+    # Keep every skip/cooldown/error in logs and expose a snapshot only on request.
+    with pend_lock:
+        last_scan.update(
+            saved_at=time.time(), candidates=len(cands), outcomes=outcomes, sent=sent, note=note
+        )
     return results
 
 
@@ -1913,7 +1964,7 @@ def _run_main():
     print("=" * 60)
     print(" Trading configuration")
     print(
-        f" BNB fee accounting: {'ON' if em.ALLOW_BNB_FEES else 'OFF'} | candidate notifications: {'ON' if SCAN_CANDIDATE_NOTIFICATIONS else 'OFF'}"
+        f" BNB fee accounting: {'ON' if em.ALLOW_BNB_FEES else 'OFF'} | automatic scan alerts: approval proposals only"
     )
     print(
         f" Auto risk {sc.RISK_PCT}% | auto daily loss limit ${em.MAX_DAILY_LOSS_USD} | "

@@ -3,6 +3,22 @@
 Release notes describe code changes. Git commits provide the exact history.
 Account settings, keys and trade journals remain local and are ignored by Git.
 
+## 1.9.0 — 2026-11-01
+
+- Reserve automatic scan Telegram messages for validated proposals with review
+  controls. Keep routine rejections, cooldowns and no-proposal outcomes in logs;
+  remove duplicate candidate summaries after successful proposal delivery.
+- Add owner-only `/scanlog` and native Menu access for cached scan diagnostics,
+  delivery counts and skip reasons with Dubai timestamps and no approval controls.
+- Preserve the last delivered proposal in `/showpr` when later candidates fail;
+  retain candidate-preview fallback only before any proposal has been delivered.
+- Retire/ignore `SCAN_CANDIDATE_NOTIFICATIONS`, so existing `true` values cannot
+  restore background preview spam. Update startup policy narration and docs.
+- Preserve lifecycle/protection/recovery notifications, all risk/strategy gates,
+  successful-delivery cooldowns and single-use final approval.
+- Add 10 regressions and update old notification expectations for the explicitly
+  requested policy, retaining technical diagnostics and execution assertions.
+
 ## 1.8.0 — 2026-10-31
 
 - Add live performance to position details/Refresh: time held, actual remaining

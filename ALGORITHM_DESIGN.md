@@ -1,6 +1,6 @@
 # NEXVANT algorithmic proposal design
 
-Display version: 1.8.0. Strategy identity: `atr-structure-v2`.
+Display version: 1.9.0. Strategy identity: `atr-structure-v2`.
 Reviewed public documentation on 31 October 2026 (Asia/Dubai).
 
 This is a deterministic rules-based proposal generator, not a trained AI model,
@@ -10,6 +10,13 @@ correctly reject every current symbol if the coin's own setup fails. Telegram
 approval remains mandatory, as explicitly confirmed by the account owner.
 
 ## User control
+
+V1.9.0 makes automatic scan notifications proposal-only. Rejected/cooldown pairs
+remain in logs and the owner-requested `/scanlog` snapshot; delivered proposals
+retain their normal Approve/Reject/Details controls. No numeric tolerance, target
+adjustment, strategy relaxation or new buying authority is introduced. The 1.5R
+minimum still rejects a genuinely weaker plan after the checked price/tick rules.
+Trade lifecycle and protection/recovery notifications retain their existing paths.
 
 V1.8.0 adds reference-valued position performance and `/portfolio`. Net acquisition
 cost includes actual supported fees, with base fees reflected in net units. Cost

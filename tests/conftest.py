@@ -36,6 +36,7 @@ def offline(monkeypatch, tmp_path):
     em.STOP.clear()
     runtime_health.reset()
     tg.last_preview.clear()
+    tg.last_scan.clear()
     tg.pending.clear()
     tg.checks.clear()
     tg.discovery_views.clear()

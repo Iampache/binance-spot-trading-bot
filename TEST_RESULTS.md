@@ -1,9 +1,13 @@
 # Offline validation results
 
-Latest v1.8.0 result: **627 passed, 3 native Windows skips**, three upstream
+Latest v1.9.0 result: **637 passed, 3 native Windows skips**, three upstream
 deprecation warnings. Ruff lint/format, Bandit, dependency and whitespace checks
 pass. The sections below retain earlier run history; the latest regression
 details are recorded at the end.
+
+V1.9.0 adds 10 proposal-only notification regressions. Earlier preview-delivery
+expectations now assert quiet background scans and explicit diagnostic requests,
+following the owner's changed policy; numeric/execution checks are retained.
 
 V1.8.0 adds 17 position-performance and 19 portfolio cases plus dashboard
 navigation. Independent cash-flow assertions verify cost allocation and partial
@@ -747,3 +751,32 @@ case. Synthetic SDK transport and forbidden sockets/HTTP remain in force; no
 production credentials, live Binance, Telegram service or real orders were used.
 These checks do not validate live fills, profitability or an exchange-enforced
 loss cap. Runtime journals/settings and approval requirements are preserved.
+
+## Proposal-only background scan notifications (v1.9.0)
+
+Ten new `tests/test_actionable_scan_notifications.py` cases verify a mixed
+NEAR/FOO/ONDO scan emits only the real approvable card, all-valid scans emit one
+card per delivered proposal without duplicate summaries, and late skipped pairs
+cannot replace the last delivered proposal snapshot. Actual callback markup is
+checked, with no orders before approval. Failed delivery and owner cancellation
+during delivery neither register approval nor start cooldown or send a fallback.
+
+The lifecycle case runs an approved synthetic buy and stop fill after a quiet
+rejected scan, verifying protection/final-result alerts still arrive through the
+unchanged notification path. Owner-only `/scanlog` tests cover explicit cached
+diagnostics, startup/no-candidate responses, native Menu access and preservation
+of unfinished forms/approvals. Reports have no approval controls and cannot trade.
+
+Earlier scan-visibility cases intentionally change notification expectations under
+the owner's explicit policy. Rejections/cooldowns are now quiet until requested;
+console reasons/levels remain present, an old `true` environment setting cannot
+restore unsolicited summaries, and a 100-candidate requested report preserves
+every pair/status across bounded messages. Existing real price/tick RR failures
+and fresh-price check consistency assertions remain, including no order or
+approval for the blocked background scan. No strategy threshold is weakened.
+
+Final full suite: **637 passed, 3 native Windows skips**, three upstream
+deprecation warnings. Ruff lint/format, Bandit, `pip check` and whitespace checks
+pass. All transport is synthetic, with sockets/HTTP forbidden. No production
+credentials, real Binance orders or Telegram service were used. Notification
+changes do not establish profitability, live delivery reliability or zero defects.

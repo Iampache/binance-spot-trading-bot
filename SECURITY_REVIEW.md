@@ -7,6 +7,32 @@ agent, plus independent automated static analysis using Bandit. It is **not an
 independent human or third-party audit**, and is not certification for live trading.
 No Binance account, production credential or Telegram integration was accessed.
 
+## Proposal-only scan notifications (v1.9.0)
+
+Automatic scanning now reaches Telegram through the existing validated proposal
+path only. Routine blocked/cooldown outcomes and delivery failures retain console
+evidence without emitting a fallback preview or duplicate summary. Validation is
+not relaxed to generate more messages; all price/tick/RR, liquidity, funds, risk,
+capacity and approval checks remain. A failed/canceled delivery cannot register
+approval or start cooldown. No runtime account, order or settings migration occurs.
+
+Owner-authorized `/scanlog` reads only the process-local scan cache. It cannot
+submit orders, rerun scanning, create approvals or consume pending forms. Output
+keeps existing sanitized diagnostic reasons, marks itself view-only and uses
+Dubai timestamps. Normal pair/status lines survive message boundaries. No private
+credentials or raw SDK errors are introduced. Cache history resets on restart;
+interrupted scans identify incomplete review counts. `/showpr` remains historical
+and prioritizes a delivered proposal over later skipped pairs.
+
+The obsolete candidate-notification flag is removed rather than retained as an
+opt-in route for unwanted background previews. Trade fill/result, protection and
+reconciliation alerts are untouched; quiet scanning is not a global Telegram
+filter. Ten new tests cover real proposal controls, mixed/all-valid scans,
+delivery/cancellation races, cache priority, owner access, startup/empty diagnostics,
+form/approval preservation and actual lifecycle alerts. Existing real RR rejection
+and fresh-price validation tests still pass. This is implementing-agent validation,
+not an independent audit or evidence of profitable trading.
+
 ## Live performance and portfolio reporting (v1.8.0)
 
 The existing owner/chat checks guard `/portfolio` and its dashboard/native Menu
@@ -385,7 +411,8 @@ Historical evidence is preserved during refresh and validated when closed record
 are loaded. Missing valuation blocks new entries after liquidation; it must never
 block ownership reconciliation, protective OCO submission or emergency liquidation.
 
-Candidate summaries now name every candidate and its outcome, including per-symbol
+Historical behavior, superseded by proposal-only delivery in v1.9.0: candidate
+summaries name every candidate and its outcome, including per-symbol
 errors, cooldown and message-delivery failures. Failed delivery no longer counts
 as a sent proposal or starts a four-hour cooldown. Exception metadata remains
 sanitized, and these notifications do not create approvals or bypass filters.

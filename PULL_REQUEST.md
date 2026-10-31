@@ -1,4 +1,21 @@
-# NEXVANT: recoverable Spot positions with live performance, portfolio risk and diagnostics
+# NEXVANT: actionable scan proposals, recoverable positions and portfolio diagnostics
+
+Background scans previously interrupted the owner with rejected/cooldown previews
+and duplicate candidate summaries. V1.9.0 sends only validated, reviewable proposal
+cards through automatic scanning. Technical skip reasons stay in console logs and
+an owner-requested `/scanlog` cache with Dubai timestamps and no approval controls.
+Delivered proposals retain their existing Approve/Reject/Details path, successful
+delivery cooldown and final live revalidation. Failed/canceled delivery does not
+register approval or send another fallback preview. Routine diagnostic noise is
+removed without loosening the 1.5R or other strategy/risk/exchange checks.
+
+The obsolete candidate-notification flag is retired, including existing `true`
+values. Trade fills/results, protection failures and recovery alerts remain on
+their existing paths. `/showpr` prioritizes the last delivered proposal over later
+skips, with historical candidate fallback before any proposal has been delivered.
+The new diagnostic command preserves forms/approvals, is owner-only, splits long
+reports without cutting normal pair/status lines and resets its cache on restart.
+No journal/settings migration, background buying or approval bypass is introduced.
 
 Position details previously lacked net performance on remaining inventory and an
 aggregate view of cash/risk commitments. V1.8.0 adds on-request position valuations
@@ -83,8 +100,12 @@ choice; the coin's strategy checks remain. New Listings awaits a verified source
 Normal policy retains Spot USDT, 10M turnover, 1% sizing and the 3 USDT daily-risk
 budget. Manual risk exceptions remain explicit; every new buy requires approval.
 
-Validation: **627 passed, 3 native Windows skips**, three upstream warnings.
-Ruff lint/format, Bandit, dependency and whitespace checks pass. Thirty-six new
+Validation: **637 passed, 3 native Windows skips**, three upstream warnings.
+Ruff lint/format, Bandit, dependency and whitespace checks pass. Ten new scan
+notification cases verify mixed/all-valid delivery, real proposal markup,
+cancellation/delivery failure, snapshot priority, lifecycle alerts and diagnostic
+authorization. Existing preview tests now assert the explicitly requested quiet
+policy while retaining log, chunking and actual price/tick/RR checks. Thirty-six
 financial-report cases plus dashboard coverage independently verify cash-flow/
 cost allocation, partial exits, fees, unknown data, reservations, ownership,
 concurrency, day boundaries, negative budgets and read-only behavior. Thirty-two health

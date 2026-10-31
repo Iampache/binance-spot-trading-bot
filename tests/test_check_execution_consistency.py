@@ -32,7 +32,6 @@ def test_changed_quote_can_make_new_plan_valid_without_bypassing_gates(sim, monk
     }
     monkeypatch.setattr(tg.ta, "scan_candidates", lambda: ({"FOOUSDT": signal}, "BTC warning"))
     monkeypatch.setattr(sc, "last_alert", {})
-    monkeypatch.setattr(tg, "SCAN_CANDIDATE_NOTIFICATIONS", True)
     messages = []
     monkeypatch.setattr(
         tg,
@@ -44,6 +43,7 @@ def test_changed_quote_can_make_new_plan_valid_without_bypassing_gates(sim, monk
     result = tg.scan_once()[0]
     assert "below 1.5R" in result and "minimum TP1 7.121" in result
     assert not tg.pending and not sim.writes
+    assert not messages  # A background rejection must not interrupt the owner.
     result = {
         "symbol": "FOOUSDT",
         "price": 6.995,

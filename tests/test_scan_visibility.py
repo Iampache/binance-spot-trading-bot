@@ -1,4 +1,4 @@
-"""Scan candidates/rejections remain visible; failed delivery never starts cooldown."""
+"""Skipped candidates remain inspectable on request without background noise."""
 
 import time
 
@@ -15,7 +15,6 @@ import trade_assistant as ta
 def scan(monkeypatch):
     messages = []
     monkeypatch.setattr(sc, "last_alert", {})
-    monkeypatch.setattr(tg, "SCAN_CANDIDATE_NOTIFICATIONS", True)
     monkeypatch.setattr(
         tg,
         "say",
@@ -24,7 +23,9 @@ def scan(monkeypatch):
     return messages
 
 
-def test_one_candidate_zero_proposals_shows_symbol_and_reason(scan, monkeypatch, caplog):
+def test_one_candidate_zero_proposals_logs_reason_and_only_shows_it_on_request(
+    scan, monkeypatch, caplog
+):
     caplog.set_level("INFO")
     monkeypatch.setattr(ta, "scan_candidates", lambda: ({"SLPUSDT": sig()}, "BTC downtrend"))
 
@@ -34,12 +35,9 @@ def test_one_candidate_zero_proposals_shows_symbol_and_reason(scan, monkeypatch,
     monkeypatch.setattr(ta, "build_plan", reject)
     result = tg.scan_once()
     assert "SLPUSDT" in caplog.text and "0 proposal(s)" in caplog.text
-    assert any(
-        "Ticker: SLPUSDT" in text
-        and "Current status: Blocked" in text
-        and "ALLOW_BNB_FEES=true" in text
-        for text in scan
-    )
+    assert not scan
+    tg.handle_message(message("/scanlog"))
+    assert any("SLPUSDT: Blocked" in text and "ALLOW_BNB_FEES=true" in text for text in scan)
     assert "ALLOW_BNB_FEES=true" in result[0]
     assert not sc.last_alert
 
@@ -67,19 +65,23 @@ def test_delivery_failure_is_reported_without_counting_as_sent_or_cooling_down(s
     monkeypatch.setattr(ta, "build_plan", lambda s: {})
     monkeypatch.setattr(tg, "send_proposal", lambda *args: False)
     assert "not delivered" in tg.scan_once()[0]
-    assert not sc.last_alert
+    assert not sc.last_alert and not scan
 
 
 def test_cooldown_candidate_is_named_and_explained(scan, monkeypatch):
     monkeypatch.setattr(ta, "scan_candidates", lambda: ({"FOOUSDT": sig()}, ""))
     sc.last_alert["FOOUSDT"] = time.time()
     assert "FOOUSDT: cooldown" in tg.scan_once()[0]
-    assert any("Ticker: FOOUSDT" in msg and "Current status: Cooldown" in msg for msg in scan)
+    assert not scan
+    tg.handle_message(message("/scanlog"))
+    assert any("FOOUSDT: Already alerted recently" in msg for msg in scan)
 
 
-def test_console_only_candidate_setting_disables_telegram_summary(scan, monkeypatch, caplog):
+def test_legacy_candidate_setting_cannot_restore_background_rejection_summaries(
+    scan, monkeypatch, caplog
+):
     caplog.set_level("INFO")
-    monkeypatch.setattr(tg, "SCAN_CANDIDATE_NOTIFICATIONS", False)
+    monkeypatch.setenv("SCAN_CANDIDATE_NOTIFICATIONS", "true")
     monkeypatch.setattr(ta, "scan_candidates", lambda: ({"FOOUSDT": sig()}, ""))
 
     def fail(s):
@@ -91,7 +93,9 @@ def test_console_only_candidate_setting_disables_telegram_summary(scan, monkeypa
     assert "FOOUSDT: blocked" in caplog.text
 
 
-def test_large_scan_summary_is_split_without_losing_candidates(scan, monkeypatch):
+def test_large_scan_log_is_quiet_until_requested_then_split_without_losing_candidates(
+    scan, monkeypatch
+):
     candidates = {f"PAIR{i}USDT": sig() for i in range(100)}
     monkeypatch.setattr(ta, "scan_candidates", lambda: (candidates, ""))
 
@@ -100,10 +104,12 @@ def test_large_scan_summary_is_split_without_losing_candidates(scan, monkeypatch
 
     monkeypatch.setattr(ta, "build_plan", fail)
     tg.scan_once()
+    assert not scan
+    tg.handle_message(message("/scanlog"))
     assert all(len(msg) <= 3500 for msg in scan)
     combined = "\n".join(scan)
-    assert all("Ticker: " + symbol in combined for symbol in candidates)
-    assert combined.count("Current status: Blocked") == len(candidates)
+    assert all(symbol + ": Blocked" in combined for symbol in candidates)
+    assert combined.count(": Blocked") == len(candidates)
 
 
 def test_send_proposal_delivery_status_is_explicit(scan, sim, monkeypatch):
@@ -125,6 +131,8 @@ def test_active_trade_block_still_displays_all_levels_without_new_approval(scan,
     for field, value in (("Entry", "100"), ("SL", "97"), ("TP1", "104.5"), ("TP2", "107.5")):
         assert f"{field}: {value}" in result
     assert "fresh executable proposal" in result
+    assert not scan
+    tg.handle_message(message("SHOW PR"))
     telegram = "\n".join(scan)
     assert "Potential Token Detected" in telegram
     assert "Reason for rejection: FOOUSDT entry is pending confirmation" in telegram
@@ -139,6 +147,8 @@ def test_cooldown_preview_has_levels_without_actionable_proposal(scan, monkeypat
     monkeypatch.setattr(ta, "scan_candidates", lambda: ({"FOOUSDT": sig()}, ""))
     sc.last_alert["FOOUSDT"] = time.time()
     tg.scan_once()
+    assert not scan
+    tg.handle_message(message("SHOW PR"))
     assert "TP1: 104.5" in "\n".join(scan)
     assert not tg.pending
 

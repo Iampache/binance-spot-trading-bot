@@ -9,6 +9,7 @@ COMMANDS = [
     {"command": "start", "description": "Open the NEXVANT dashboard"},
     {"command": "discover", "description": "Discover USDT Spot tokens"},
     {"command": "check", "description": "Check a coin and review a setup"},
+    {"command": "scanlog", "description": "View the last scan and skipped pairs"},
     {"command": "position", "description": "View bot positions or request an exit"},
     {"command": "portfolio", "description": "View bot holdings, estimated P&L and risk"},
     {"command": "pnl", "description": "View completed-trade P&L for today"},
