@@ -777,14 +777,20 @@ def scanner_loop():
 def _run_main():
     if not TOKEN or not CHAT_ID:
         raise SystemExit("TELEGRAM_TOKEN and TELEGRAM_CHAT_ID must be set in .env")
+    print("[4/5] Recovering saved trades...", flush=True)
     unresolved = em.recover_trades()
+    active = sum(record["state"] != "closed" for record in unresolved)
+    print(
+        f"[4/5] Recovery pass completed | {active} active/unresolved record(s); "
+        + ("monitoring continues." if active else "no active positions."),
+        flush=True,
+    )
     for record in unresolved:
         if record["state"] != "closed":
             worker = threading.Thread(target=em.monitor_trade, args=(record,), daemon=False)
             workers.add(worker)
             worker.start()
     print("=" * 60)
-    print(BRANDING)
     print(f" Telegram Trade Assistant - {mode_label()}")
     print(
         f" BNB fee accounting: {'ON' if em.ALLOW_BNB_FEES else 'OFF'} | candidate notifications: {'ON' if SCAN_CANDIDATE_NOTIFICATIONS else 'OFF'}"
@@ -806,6 +812,7 @@ def _run_main():
     print("=" * 60)
 
     # ignore any old taps that piled up while the program was off
+    print("[5/5] Loading Telegram...", flush=True)
     offset = 0
     r = tg("getUpdates", timeout=0)
     if not r.get("ok"):
@@ -816,12 +823,23 @@ def _run_main():
     if r.get("result"):
         offset = r["result"][-1]["update_id"] + 1
 
+    print("[5/5] Telegram connection verified.", flush=True)
     say(
         f"Assistant started [{mode_label()}]. "
         f"{'Scanning every 15 min. ' if AUTO_SCAN else ''}Send /check to check a coin, /help for commands."
     )
     if AUTO_SCAN:
         threading.Thread(target=scanner_loop, daemon=True).start()
+    print(
+        "TRBT ready | "
+        + (
+            "Scanner started; results appear in the log."
+            if AUTO_SCAN
+            else "Auto scan OFF; use /check."
+        )
+        + " Telegram commands enabled.",
+        flush=True,
+    )
 
     while True:
         try:
@@ -853,10 +871,18 @@ def _run_main():
 def main():
     if not TOKEN or not CHAT_ID:
         raise SystemExit("Telegram configuration missing")
+    print("TRBT | The Trading Bot for Binance Spot", flush=True)
+    print(BRANDING, flush=True)
+    print(f"Mode: {mode_label()}", flush=True)
+    print("[1/5] Loading scanner... completed (module ready; no scan run yet).", flush=True)
+    print("[2/5] Loading exchange...", flush=True)
     em.initialize()
+    print("[2/5] Exchange loading completed (Spot account verified).", flush=True)
     em.STOP.clear()
+    print("[3/5] Checking duplicate-instance protection...", flush=True)
     lock = em.instance_lock()
     try:
+        print("[3/5] Instance lock acquired.", flush=True)
         _run_main()
     finally:
         em.STOP.set()

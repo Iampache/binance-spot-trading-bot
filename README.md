@@ -362,3 +362,10 @@ identity. Telegram uses a blue ticker marker and a separate status marker
 (amber for waiting/cooldown, red for blocked/canceled). Text labels always explain
 the state. Telegram does not support arbitrary text colors. Markers are visual
 cues, not safety ratings or permission to trade. Order logic is unchanged.
+
+The assistant starts with a compact `TRBT | The Trading Bot for Binance Spot`
+sequence: scanner module readiness, verified exchange initialization, instance
+lock, recovery pass, then Telegram readiness. Each success line follows the
+corresponding operation; no artificial loading delays are added. Scanner module
+readiness does not mean the first market scan is finished, and a completed
+recovery pass can still report unresolved records requiring continued monitoring.

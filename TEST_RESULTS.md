@@ -312,3 +312,9 @@ repository URL, with restrained ticker/status markers in Telegram. No order,
 approval, risk or account logic changed. Existing full suite: **252 passed,
 3 native Windows skips**, three upstream warnings. Ruff/format, Bandit, dependency
 and whitespace checks pass. No live account access or trades occurred.
+
+Startup presentation follow-up adds a five-step TRBT initialization display.
+Completion messages follow exchange verification, lock acquisition, recovery and
+Telegram validation; scanner readiness is distinguished from scan completion.
+No fake delay or additional exchange request was added. Full suite remains
+**252 passed, 3 Windows-only skips**, with three upstream warnings.
