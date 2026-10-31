@@ -36,6 +36,7 @@ import requests
 from dotenv import load_dotenv
 
 import safety
+from branding import BRANDING
 
 load_dotenv()
 
@@ -277,12 +278,13 @@ def build_msg(s, note):
             f"(~${s['qty'] * s['entry']:.2f})"
         )
     return (
-        f"ENTRY CANDIDATE: {s['symbol']}\n{s['setup']}\n"
+        f"🔵 ENTRY CANDIDATE: {s['symbol']}\n{s['setup']}\n"
+        "🟡 Proposal status: SCANNER PREVIEW — alerts only, no order placed\n"
         f"Entry ~{fmt(s['entry'])} | Stop {fmt(s['stop'])} (-{s['risk_pct']:.1f}%)\n"
         f"Target 1 {fmt(s['t1'])} (1.5R) | Target 2 {fmt(s['t2'])} (2.5R)\n"
         f"RSI {s['rsi']:.0f} | 24h {s['chg24']:+.1f}%{size}\n{note}\n"
         f"Place the stop/OCO the moment you buy. Skip it if price already moved >1% from entry.\n"
-        f"https://www.binance.com/en/trade/{base}_USDT"
+        f"https://www.binance.com/en/trade/{base}_USDT\n\n{BRANDING}"
     )
 
 
@@ -311,6 +313,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--once", action="store_true")
     a = p.parse_args()
+    log.info("\n%s", BRANDING)
     if a.once:
         scan()
         return

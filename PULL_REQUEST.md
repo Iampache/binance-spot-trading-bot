@@ -48,3 +48,8 @@ SL, TP1 and TP2 as explicit previews. SHOW PR or /showpr retrieves the latest
 process-local proposal/candidate snapshot without approval buttons or new orders.
 Historical snapshots cannot reactivate canceled approvals, and the active-trade
 limit is unchanged. Validation: 252 offline passes, 3 native Windows skips.
+
+Presentation follow-up: compact shared branding (“Concept & Developed by Fazil”),
+display version and Git URL; blue ticker and distinct status markers because
+Telegram cannot render custom text colors. Plain labels retain the full meaning.
+No execution-policy changes. Full offline suite remains 252 passes / 3 Windows skips.

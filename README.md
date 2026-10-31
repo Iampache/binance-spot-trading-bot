@@ -350,3 +350,15 @@ created. An empty scan preserves the previous snapshot. Restart clears the
 snapshot; `/check COIN` or a new scan supplies a fresh one. `/cancel` can invalidate
 a proposal while its historical snapshot remains viewable. Prices may be stale;
 use `/check COIN` and fresh approval when you can open another position.
+
+## Presentation and version
+
+The scanner and assistant share a compact identity block: application version
+`1.0.0` (the first explicitly tracked display version), “Concept & Developed by
+Fazil,” and the GitHub repository URL. This display version is maintained in
+`branding.py`; it is not a claim that a Git release/tag has been published.
+Startup output, proposals, checks, scanner summaries and saved previews use this
+identity. Telegram uses a blue ticker marker and a separate status marker
+(amber for waiting/cooldown, red for blocked/canceled). Text labels always explain
+the state. Telegram does not support arbitrary text colors. Markers are visual
+cues, not safety ratings or permission to trade. Order logic is unchanged.

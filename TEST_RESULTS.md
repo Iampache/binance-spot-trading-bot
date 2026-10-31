@@ -304,3 +304,11 @@ Local Linux result: **252 passed, 3 native Windows skips**, three upstream warni
 Ruff, formatting, Bandit, dependency and whitespace checks pass. No live account
 or real trades were used. The previous user-reported Windows run (245 passed)
 predates these ten new tests; this update still requires Windows verification.
+
+## Compact product identity and status markers
+
+Presentation-only update adds a shared display version, Fazil attribution and
+repository URL, with restrained ticker/status markers in Telegram. No order,
+approval, risk or account logic changed. Existing full suite: **252 passed,
+3 native Windows skips**, three upstream warnings. Ruff/format, Bandit, dependency
+and whitespace checks pass. No live account access or trades occurred.

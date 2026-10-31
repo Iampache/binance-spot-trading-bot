@@ -44,6 +44,7 @@ import entry_scanner as sc
 import exit_manager as em
 import safety
 import trade_assistant as ta
+from branding import BRANDING
 
 TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
@@ -117,7 +118,8 @@ def mode_label():
 def proposal_text(sig, p, note):
     lines = [
         f"TRADE PROPOSAL [{mode_label()}]",
-        f"{p['symbol']}  |  {sig['setup']}",
+        f"🔵 {p['symbol']}  |  {sig['setup']}",
+        "🟡 Proposal status: AWAITING APPROVAL — no order placed",
         "",
         f"Estimated stop loss: ~${p['loss']:.2f} including reserved fees; slippage can increase loss.",
         f"Entry ~ {sc.fmt(p['price'])}",
@@ -161,6 +163,8 @@ def proposal_text(sig, p, note):
     lines += [
         "",
         f"Expires in {APPROVAL_TTL // 60} min. Approve only after checking the chart.",
+        "",
+        BRANDING,
     ]
     return "\n".join(lines)
 
@@ -315,13 +319,13 @@ def send_check_card(res, title="CHECK", generation=None):
     cid = uuid.uuid4().hex
     pair = f"{res['symbol'][:-4]}/USDT"
     lines = [
-        f"{title}: {pair}  [{mode_label()}]",
+        f"🔵 {title}: {pair}  [{mode_label()}]",
         f"Price {sc.fmt(res['price'])} | 24h {res['chg']:+.1f}% | volume ${res['qv'] / 1e6:.0f}M",
         "",
     ]
     if res["status"] == "SAFE":
         lines += [
-            "STATUS: 1 - SAFE TO ENTER",
+            "🟢 STATUS: 1 - SAFE TO ENTER",
             f"Why: {res['sig']['setup']}, RSI {res['sig']['rsi']:.0f}",
             "(Technical rules met. Execution checks may still reject. NOT a safety guarantee.)",
         ]
@@ -330,7 +334,7 @@ def send_check_card(res, title="CHECK", generation=None):
             {"text": "3 - Manual override", "callback_data": f"C3:{cid}"},
         ]
     else:
-        lines += ["STATUS: 2 - WARNING - WAIT 15 MINUTES", "Reasons:"] + [
+        lines += ["🟡 STATUS: 2 - WARNING - WAIT 15 MINUTES", "Reasons:"] + [
             f"- {x}" for x in res["reasons"]
         ]
         row = [
@@ -339,6 +343,7 @@ def send_check_card(res, title="CHECK", generation=None):
         ]
     if res["note"]:
         lines += ["", res["note"]]
+    lines += ["", BRANDING]
     text = "\n".join(lines)
     kb = {"inline_keyboard": [row, [{"text": "Cancel", "callback_data": f"CX:{cid}"}]]}
     r = say(text, reply_markup=json.dumps(kb))
@@ -693,23 +698,28 @@ def scan_once():
     results, sent = [], 0
     for sym, sig in cands.items():
         delivered = False
+        badge = "🔴 Proposal status: BLOCKED — no actionable approval"
         remaining = sc.COOLDOWN_SECONDS - (time.time() - sc.last_alert.get(sym, 0))
         if remaining > 0:
             result = f"{sym}: cooldown, {int(remaining)} seconds remaining"
+            badge = "🟡 Proposal status: COOLDOWN — preview only"
         else:
             try:
                 plan = ta.build_plan(sig)
                 if send_proposal(sig, plan, note):
                     delivered = True
+                    badge = "🟡 Proposal status: AWAITING APPROVAL — no order placed"
                     sc.last_alert[sym] = time.time()
                     sent += 1
                     result = f"{sym}: proposal sent; awaiting your approval"
                 else:
                     result = f"{sym}: proposal not delivered or canceled; no approval available"
+                    badge = "🔴 Proposal status: NOT DELIVERED / CANCELED"
             except ValueError as error:
                 result = f"{sym}: blocked — {safety.redact(str(error))}"
             except Exception as error:
                 result = f"{sym}: blocked — {safe(error)}"
+        result = f"🔵 {result}\n{badge}"
         try:
             # Display scanner levels without bypassing execution planning or creating
             # an actionable proposal. These are signal prices, not rounded order levels.
@@ -725,14 +735,21 @@ def scan_once():
             result += "\nCandidate levels unavailable: invalid or incomplete scanner signal."
         if not delivered:
             with pend_lock:
-                last_preview.update(text=f"{result}\n{note}", saved_at=time.time())
+                last_preview.update(text=f"{result}\n{note}\n\n{BRANDING}", saved_at=time.time())
         results.append(result)
         sc.log.info("%s", result)
     sc.log.info(
         "Scan done: %s candidate(s) [%s], %s proposal(s) sent. %s", len(cands), names, sent, note
     )
     if cands and SCAN_CANDIDATE_NOTIFICATIONS:
-        lines = [f"SCAN RESULTS [{mode_label()}]", "Candidates: " + names, *results, note]
+        lines = [
+            BRANDING,
+            "",
+            f"SCAN RESULTS [{mode_label()}]",
+            "🔵 Candidates: " + names,
+            *results,
+            note,
+        ]
         chunk = ""
         for line in lines:
             # Bound Telegram messages, retaining every candidate/reason across chunks.
@@ -767,6 +784,7 @@ def _run_main():
             workers.add(worker)
             worker.start()
     print("=" * 60)
+    print(BRANDING)
     print(f" Telegram Trade Assistant - {mode_label()}")
     print(
         f" BNB fee accounting: {'ON' if em.ALLOW_BNB_FEES else 'OFF'} | candidate notifications: {'ON' if SCAN_CANDIDATE_NOTIFICATIONS else 'OFF'}"
