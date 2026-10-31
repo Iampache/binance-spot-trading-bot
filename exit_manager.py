@@ -430,13 +430,14 @@ def preflight(plan, f):
     if not D(plan["stop"]) < price < D(plan["t1"]) < D(plan["t2"]):
         raise ValueError("Rounded protective levels invalid")
     qty = D(plan["qty"])
-    validate_qty(qty, f, price, market=True, entry=True)
+    entry_buffer = plan.get("manual_override") is not True
+    validate_qty(qty, f, price, market=True, entry=entry_buffer)
     # Reserve worst-side base commission before sizing the two protective lists.
     net = round_to(qty * (1 - D(plan["fee_rate"])), f["step"])
     half = round_to(net / 2, f["step"])
     for part, target in ((half, plan["t1"]), (net - half, plan["t2"])):
-        validate_qty(part, f, plan["stop"], entry=True)
-        validate_qty(part, f, target, entry=True)
+        validate_qty(part, f, plan["stop"], entry=entry_buffer)
+        validate_qty(part, f, target, entry=entry_buffer)
     if qty * price * (1 + D(plan["fee_rate"])) > safety.MAX_POSITION_USDT:
         raise ValueError("Position including commission exceeds 12 USDT")
     # Check symbol order/list capacity before buying; unknown exotic constraints fail closed.

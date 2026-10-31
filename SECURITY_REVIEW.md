@@ -41,8 +41,8 @@ No Binance account, production credential or Telegram integration was accessed.
   buy. Both conditions are checked again immediately before submission.
 - Closed journals with missing fills could implicitly reset the daily loss gate.
   Closed-state accounting and inventory evidence are validated during loading.
-- Manual entries could bypass the requested volume floor. Entry preflight now
-  enforces 10,000,000 USDT quote volume on every path.
+- Manual entries could bypass the requested volume floor. Automatic entry preflight enforces 10,000,000 USDT quote volume. A later
+  explicit user instruction permits the labeled manual override described below.
 
 Bandit reports no findings. Ruff and formatting checks pass. See TEST_RESULTS.md
 for actual execution evidence and coverage limitations; passing checks do not
@@ -98,3 +98,28 @@ The code is prepared for review and further controlled acceptance work. It shoul
 not be described as guaranteed safe or live-validated. A reviewer independent of
 the implementing agent should examine lifecycle and exchange assumptions before
 real funds are enabled.
+
+
+## Explicit manual-risk override policy update
+
+The user explicitly requested manual liquidity/risk overrides and confirmed that
+manual approval should also bypass 1% sizing and the 3 USDT daily-loss gate.
+This is an authorized policy exception, not a claim that low-volume trades are
+safe. The automatic profile still enforces the original volume, spread/depth,
+stop-distance, reward/risk, sizing and daily-risk rules.
+
+Only an explicit boolean manual flag from the manual-level workflow selects the
+override profile. A setup label or truthy string cannot activate it. The flag is
+retained through proposal refresh, execution revalidation and durable approved
+bounds; an automatic approval cannot silently become manual. Every manual
+proposal discloses the override and observed breached thresholds. The approved
+quantity, cost, stop-loss estimate and exit levels remain binding; increases
+require another approval. The startup banner distinguishes auto limits from the
+manual exception.
+
+The 12 USDT cap, one active/unresolved trade, account/ownership reconciliation,
+valid commission evidence, exchange filters, OCO support and protection, balance
+checks and price/approval bounds remain enforced in both modes. Manual overrides
+can increase losses beyond the former account-risk gates, and they do not solve
+slippage, thin-book execution, gaps or exchange outages. All development checks
+remain offline; no real trade or account connection was used for this change.

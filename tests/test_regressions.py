@@ -768,7 +768,7 @@ def test_symbol_order_capacity_checked_before_buy(sim, monkeypatch):
     assert not sim.writes
 
 
-def test_low_volume_manual_entry_is_also_rejected(sim):
+def test_low_volume_entry_without_explicit_override_is_rejected(sim):
     def override(method, path, data):
         if path == "ticker/24hr":
             return {"symbol": "FOOUSDT", "quoteVolume": "9999999"}

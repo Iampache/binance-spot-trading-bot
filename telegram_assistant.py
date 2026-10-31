@@ -111,17 +111,26 @@ def proposal_text(sig, p, note):
         f"TRADE PROPOSAL [{mode_label()}]",
         f"{p['symbol']}  |  {sig['setup']}",
         "",
-        f"If stopped: about -${p['loss']:.2f} (plus fees)",
+        f"Estimated stop loss: ~${p['loss']:.2f} including reserved fees; slippage can increase loss.",
         f"Entry ~ {sc.fmt(p['price'])}",
         f"Stop: {sc.fmt(p['stop'])} (-{p['risk_pct']:.1f}%)",
         f"TP1: {sc.fmt(p['t1'])} (sells half)",
         f"TP2: {sc.fmt(p['t2'])} (sells rest)",
         f"Size: {em.fmt(p['qty'])} (~${p['cost']:.2f} of ${p['balance']:.2f} USDT)",
-        f"If TP1 / TP2: about +${p['gain1']:.2f} / +${p['gain2']:.2f}",
+        f"Gross TP1 / TP2 gains before fees: about +${p['gain1']:.2f} / +${p['gain2']:.2f}",
         "After TP1 the ORIGINAL OCO2 stop remains active; breakeven is NOT automatic.",
     ]
     if note:
         lines.append(note)
+    if p.get("manual_override") is True:
+        lines += [
+            "",
+            "MANUAL RISK OVERRIDE — approving accepts the risks below.",
+            "Volume, spread/depth, trend/setup, reward/risk, stop-distance, 1% sizing and the 3 USDT daily-loss gate are bypassed.",
+            "12 USDT cap, one active/unresolved trade, exchange rules and OCO protection remain mandatory.",
+            "Estimated stop loss includes reserved fees, but slippage can make the actual loss larger.",
+        ]
+        lines += [f"OVERRIDDEN: {warning}" for warning in p.get("override_warnings", [])]
     lines += [
         "",
         f"Expires in {APPROVAL_TTL // 60} min. Approve only after checking the chart.",
@@ -266,7 +275,7 @@ def send_check_card(res, title="CHECK", generation=None):
         ]
         row = [
             {"text": "1 - Enter (show plan)", "callback_data": f"C1:{cid}"},
-            {"text": "3 - Manual", "callback_data": f"C3:{cid}"},
+            {"text": "3 - Manual override", "callback_data": f"C3:{cid}"},
         ]
     else:
         lines += ["STATUS: 2 - WARNING - WAIT 15 MINUTES", "Reasons:"] + [
@@ -274,7 +283,7 @@ def send_check_card(res, title="CHECK", generation=None):
         ]
         row = [
             {"text": "2 - Recheck in 15 min", "callback_data": f"C2:{cid}"},
-            {"text": "3 - Manual", "callback_data": f"C3:{cid}"},
+            {"text": "3 - Manual override", "callback_data": f"C3:{cid}"},
         ]
     if res["note"]:
         lines += ["", res["note"]]
@@ -358,8 +367,11 @@ def handle_check_callback(cb, action, cid):
         timer.start()
     elif action == "C3":
         checks.pop(cid, None)
-        ack("Manual mode.")
-        edit(item, "MANUAL mode selected.")
+        ack("Manual override mode.")
+        edit(
+            item,
+            "MANUAL risk override selected. Strategy/liquidity and account-risk gates are bypassed.",
+        )
         state.clear()
         state.update(step="manual", symbol=res["symbol"], status=res["status"], t=time.time())
         say(
@@ -367,6 +379,9 @@ def handle_check_callback(cb, action, cid):
             f"Send 4 numbers in one message:\nENTRY STOP TP1 TP2\n"
             f"Example: {sc.fmt(res['price'])} {sc.fmt(res['price'] * 0.97)} "
             f"{sc.fmt(res['price'] * 1.04)} {sc.fmt(res['price'] * 1.07)}\n"
+            "Manual override bypasses liquidity/strategy checks, 1% sizing and the 3 USDT daily-loss gate. "
+            "The 12 USDT cap, one active trade and valid protective OCOs remain mandatory. "
+            "You must approve the final risk-override proposal before any buy.\n"
             f"(Entry must be within 1% of the live price. /cancel to stop.)"
         )
 
@@ -391,6 +406,7 @@ def handle_manual(text):
         t1=t1,
         t2=t2,
         setup="MANUAL entry (your levels)",
+        manual_override=True,
         rsi=0,
         chg24=0,
     )
@@ -467,7 +483,6 @@ def handle_callback(cb):
         edit(item, f"NOT PLACED: error while checking ({safe(e)})")
         return
 
-    abs(fresh["price"] / old["price"] - 1)
     if not ta.approval_bounds(old, fresh):
         trade_lock.release()
         edit(
@@ -575,8 +590,14 @@ def _run_main():
     print("=" * 60)
     print(f" Telegram Trade Assistant - {mode_label()}")
     print(
-        f" Risk {sc.RISK_PCT}% | max ${ta.MAX_POSITION_USDT} per trade | "
-        f"max {ta.MAX_OPEN_TRADES} open | daily loss limit ${em.MAX_DAILY_LOSS_USD}"
+        f" Auto risk {sc.RISK_PCT}% | auto daily loss limit ${em.MAX_DAILY_LOSS_USD} | "
+        f"auto minimum volume {sc.MIN_QUOTE_VOLUME:,.0f} USDT"
+    )
+    print(
+        " Manual override: liquidity/strategy, 1% sizing and daily-loss gate bypassed after approval"
+    )
+    print(
+        f" All entries: max ${ta.MAX_POSITION_USDT} per trade | max {ta.MAX_OPEN_TRADES} active/unresolved"
     )
     print(
         f" Auto proposals: {'ON' if AUTO_SCAN else 'OFF'} | Send /check in Telegram to check any coin"

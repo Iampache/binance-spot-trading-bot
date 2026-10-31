@@ -71,6 +71,10 @@ def risk_amount(qty, entry, stop, fee):
 
 def build_plan(sig):
     require_finite_levels(sig)
+    manual = sig.get("manual_override", False)
+    if type(manual) is not bool:
+        raise ValueError("Manual override must be explicitly enabled with a boolean flag")
+    warnings = []
     em.require_trade_permission()
     if sc.RISK_PCT != 1 or MAX_POSITION_USDT != 12 or MAX_OPEN_TRADES != 1:
         raise ValueError("Required limits: 1% risk, 12 USDT position, one open trade")
@@ -79,8 +83,15 @@ def build_plan(sig):
     c = em.get_client()
     symbol = sig["symbol"]
     ticker = c.get_ticker(symbol=symbol)
-    if ticker.get("symbol") != symbol or em.D(ticker["quoteVolume"]) < safety.MIN_QUOTE_VOLUME:
-        raise ValueError("Minimum 24-hour trading volume is 10,000,000 USDT; skip trade")
+    if ticker.get("symbol") != symbol:
+        raise ValueError("Ticker identity mismatch")
+    quote_volume = em.D(ticker["quoteVolume"])
+    if quote_volume < 0:
+        raise ValueError("Invalid quote volume")
+    if quote_volume < safety.MIN_QUOTE_VOLUME:
+        if not manual:
+            raise ValueError("Minimum 24-hour trading volume is 10,000,000 USDT; skip trade")
+        warnings.append(f"24h volume {quote_volume:,.0f} USDT is below 10,000,000 USDT")
     price = em.D(c.get_symbol_ticker(symbol=symbol)["price"])
     if price <= 0 or abs(price / em.D(sig["entry"]) - 1) > Decimal(".01"):
         raise ValueError("Entry moved more than 1% from signal")
@@ -89,24 +100,34 @@ def build_plan(sig):
     if not 0 < stop < price < t1 < t2:
         raise ValueError("Rounded protective levels invalid")
     risk = price - stop
-    if not Decimal(".01") <= risk / price <= Decimal(".06") or (t1 - price) / risk < MIN_RR:
-        raise ValueError("Stop must be 1%-6% below entry and TP1 at least 1.5R")
+    if not Decimal(".01") <= risk / price <= Decimal(".06"):
+        if not manual:
+            raise ValueError("Stop must be 1%-6% below entry and TP1 at least 1.5R")
+        warnings.append(
+            f"Stop distance {risk / price * 100:.2f}% is outside the 1%-6% strategy range"
+        )
+    if (t1 - price) / risk < MIN_RR:
+        if not manual:
+            raise ValueError("Stop must be 1%-6% below entry and TP1 at least 1.5R")
+        warnings.append(f"TP1 reward/risk {(t1 - price) / risk:.2f}R is below 1.5R")
     if c.get_open_orders():
         raise ValueError("Existing exchange orders: cannot establish isolated ownership")
     balance = em.D(c.get_asset_balance(asset="USDT")["free"])
     if balance <= 0:
         raise ValueError("No available USDT")
     fee = em.commission_rate(symbol)
-    remaining = em.D(3) - em.todays_loss()
-    budget = min(balance / 100, remaining)
-    if budget <= 0:
+    daily_loss = em.todays_loss()
+    remaining = em.D(3) - daily_loss
+    # Manual approval accepts the chosen levels at the position cap, instead of
+    # reducing quantity to the automatic 1%/daily-risk budget.
+    max_cost = min(em.D(12), balance if manual else balance * Decimal(".95"))
+    budget = max_cost if manual else min(balance / 100, remaining)
+    if not manual and budget <= 0:
         raise ValueError("Daily bot-trade loss limit reached")
     risk_per_unit = risk + (price + stop) * fee
+    cost_limit_units = max_cost / (price * (1 + fee))
     qty = em.round_to(
-        min(
-            budget / risk_per_unit,
-            min(em.D(12), balance * Decimal(".95")) / (price * (1 + fee)),
-        ),
+        cost_limit_units if manual else min(budget / risk_per_unit, cost_limit_units),
         f["step"],
     )
     # Compute a common exact step instead of repeatedly rounding incompatible lattices.
@@ -121,7 +142,18 @@ def build_plan(sig):
     baseline = c.get_asset_balance(asset=f["base"])
     baseline = em.D(baseline["free"]) + em.D(baseline["locked"])
     loss = risk_amount(qty, price, stop, fee)
-    spread, depth = market_liquidity(symbol, qty * price, enforce=True)
+    if manual and loss > balance / 100:
+        warnings.append(f"Planned stop loss {loss:.2f} USDT exceeds 1% of available USDT")
+    if manual and loss > remaining:
+        warnings.append(
+            f"Daily realized loss {daily_loss:.2f} USDT plus planned risk {loss:.2f} USDT "
+            "exceeds the automatic 3 USDT daily budget"
+        )
+    spread, depth = market_liquidity(symbol, qty * price, enforce=not manual)
+    if manual and spread > MAX_SPREAD_BPS:
+        warnings.append(f"Spread {spread:.2f} bps exceeds {MAX_SPREAD_BPS} bps")
+    if manual and depth < qty * price * MIN_DEPTH_MULTIPLE:
+        warnings.append(f"Nearby order-book depth {depth:.2f} USDT is below the strategy minimum")
     half = em.round_to(qty * (1 - fee) / 2, f["step"])
     rest = em.round_to(qty * (1 - fee), f["step"]) - half
     plan = {
@@ -146,13 +178,17 @@ def build_plan(sig):
         "rr": (t1 - price) / risk,
         "spread_bps": spread,
         "depth_usdt": depth,
+        "manual_override": manual,
+        "override_warnings": warnings,
     }
     em.preflight(plan, f)
     return plan
 
 
 def approval_bounds(old, fresh):
-    if old["symbol"] != fresh["symbol"]:
+    if old["symbol"] != fresh["symbol"] or old.get("manual_override", False) != fresh.get(
+        "manual_override", False
+    ):
         return False
     # Changing quantity, cost, risk or any exit level requires a NEW approval.
     return (
@@ -186,6 +222,7 @@ def execute(plan, *, approval=None):
             "stop": plan["stop"],
             "t1": plan["t1"],
             "t2": plan["t2"],
+            "manual_override": plan.get("manual_override", False),
         }
         fresh = build_plan(sig)
         if not approval_bounds(approval, fresh):

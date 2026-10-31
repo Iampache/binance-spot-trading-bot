@@ -165,3 +165,37 @@ of buy/sell/cancel methods from the read-retry helper. A timestamp-rejected buy 
 persisted as rejected and never automatically resubmitted. The complete local
 suite now has **145 passing tests** with three upstream warnings. Native Windows
 live-account behavior remains unverified until the user retries read-only status.
+
+
+## Explicit manual-risk override
+
+The user explicitly authorized a manual profile that bypasses volume, spread/
+depth, trend/setup, reward/risk, stop-distance, 1% sizing and the daily-loss gate.
+Automatic strategy and risk gates remain unchanged. The 12 USDT total position
+cap, one active/unresolved trade, identity/ownership, exchange validity, complete
+commission evidence, protective OCOs and bounded fresh approval remain mandatory.
+Automatic 5% balance/notional buffers are not exchange requirements and are
+omitted for manual plans, while actual exchange limits and fee reserves remain.
+
+The GUI marks Manual as an override and displays the exceptions and measured
+violations before approval. The explicit flag is preserved through proposal
+refresh, final pre-buy revalidation and journaled approval bounds. The startup
+banner separates automatic limits from the manual exception. A manual label or
+nonboolean flag cannot activate the profile, and automatic approval cannot be
+silently escalated to manual.
+
+Twenty-six additional offline cases cover the screenshot's low-volume rejection,
+strategy stops/R:R, spread/depth, a 33 USDT balance, exceeded daily losses, full
+manual execution revalidation, mandatory exchange minimums, insufficient fee
+valuation, invalid/nonfinite data, active-position gating, approval expiry/mode
+binding, disclosure, manual UI entry and quantity/cost/risk ceilings. Manual
+losses are verified to remain in accounting and block later automatic entries.
+The old low-volume test still asserts rejection without the explicit override;
+its name was clarified rather than weakening its assertion.
+
+The complete local suite passes **171 tests** with three upstream warnings.
+Lint, formatting, Bandit, dependency and whitespace checks pass. All exchange
+operations were simulated with network blocking; no live trade was executed.
+Native Windows validation of this new manual profile remains pending CI/user
+verification. Allowing human overrides increases accepted trading risk and is
+not evidence that low-liquidity execution or losses are controlled.

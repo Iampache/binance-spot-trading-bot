@@ -71,21 +71,41 @@ credentials into test processes. `PYTHON_DOTENV_DISABLED=1` prevents loading `.e
 The deployment policy lives in `safety.py`. Environment variables cannot silently
 raise these limits:
 
-| Setting | Required value |
-| --- | --- |
-| Exchange | Binance Spot only |
-| Minimum 24-hour quote volume | 10,000,000 USDT, including manual entries |
-| Planned trade risk | Up to 1% of available USDT, including reserved commissions |
-| Maximum position | 12 USDT including reserved buy commission |
-| Maximum open bot trades | One, including uncertain orders and residual holdings |
-| Daily loss threshold | 3 USDT, based on net realized bot P&L for the UTC day |
-| Entry authorization | Fresh, single-use Telegram approval |
+| Setting | Automatic / scanner plan | Explicit manual override |
+| --- | --- | --- |
+| Exchange | Binance Spot only | Binance Spot only |
+| Minimum 24-hour quote volume | 10,000,000 USDT | Bypassed; low volume displayed as a warning |
+| Stop-distance and TP1 reward/risk | 1%-6% and at least 1.5R | User levels; strategy thresholds bypassed |
+| Spread and nearby order-book depth | Enforced | Thresholds bypassed; warnings displayed |
+| Planned trade risk | Up to 1% of available USDT, including reserved fees | Not limited to 1%; estimated stop loss shown before approval |
+| Maximum position | 12 USDT including reserved buy commission | Same 12 USDT cap |
+| Maximum active bot trades | One, including uncertain orders and residuals | Same one-trade limit |
+| Daily loss threshold | 3 USDT, based on net realized bot P&L for the UTC day | Entry gate bypassed after explicit manual approval |
+| Authorization | Fresh, single-use Telegram approval | Fresh, single-use **MANUAL RISK OVERRIDE** approval |
 
 The original request specified 10 USDT; the user subsequently changed the position
-cap to **12 USDT**. No other requested limit was raised. If the remaining risk
-budget or the 12 USDT cap cannot support both OCO legs after fees and rounding,
-the trade is skipped with an explanation. The bot never rounds quantity up to
-satisfy a minimum. Stop-market losses can exceed planned risk.
+cap to **12 USDT**. The user later explicitly authorized manual liquidity/strategy
+and 1%/daily-loss overrides. Automatic policy remains unchanged. The entry point
+and selected policy are persisted in each new trade's plan and approved bounds.
+
+Choose **3 - Manual override** from a `/check` card, provide ENTRY STOP TP1 TP2,
+and review the labeled override proposal. Selecting Manual or submitting levels
+does not itself place a buy. Trend/setup warnings do not block a manual plan.
+The bot uses the available balance up to the 12 USDT position cap for manual
+sizing instead of reducing size to the automatic risk budget. Automatic-only 5%
+balance reserve and extra minimum-notional padding are also omitted for manual
+plans; actual exchange minimums and commission-adjusted protective quantities
+are still checked. Losses from manual
+trades are still accounted for and therefore affect subsequent automatic entries.
+
+Manual override is not permission to ignore exchange validity or lose ownership
+tracking. Finite positive levels in valid order, entry-price drift bounds, symbol
+support, commissions, exchange quantity/price/notional restrictions, account
+identity, valid journals, sufficient funds, OCO protection and approval ceilings
+remain mandatory. If two valid protective OCO legs cannot fit within 12 USDT,
+the trade is still skipped with an explanation. The bot never rounds quantity up
+to satisfy a minimum. Manual trades can exceed 1% risk and the automatic daily
+threshold; stop-market slippage can also exceed the displayed estimated loss.
 
 Entries use **price-capped LIMIT IOC orders**, rather than uncapped market buys, to
 bound entry price and quantity. Partial/expired entry fills are recorded, reconciled,
