@@ -108,7 +108,12 @@ Preserve this directory on durable storage. Every write intention and client ID 
 saved with file synchronization and atomic replacement before submission.
 POSIX additionally synchronizes the containing directory. Python does not support
 directory fsync on Windows: process-crash recovery is supported, but equal
-power-loss durability across filesystems/platforms is not guaranteed. Account operation
+power-loss durability across filesystems/platforms is not guaranteed. On Windows,
+atomic replacement retries known access/sharing/lock errors (WinError 5, 32, 33)
+up to eight attempts with less than one second of total backoff. Persistent
+failures still propagate: the bot never truncates the old journal or submits a
+request whose intention could not be saved. This handles transient file access
+contention; it does not override permanent permissions. Account operation
 locks serialize entries, monitors, status reconciliation and kill operations on
 this filesystem. The process lock is released automatically after process death;
 never delete the lock file to unlock a running process. The live handle is held

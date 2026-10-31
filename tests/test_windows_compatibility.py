@@ -222,3 +222,147 @@ def test_lock_uses_exclusive_nonblocking_flags_for_instances(tmp_path, monkeypat
     with ProcessLock(tmp_path / "operation.lock", blocking=True):
         pass
     assert observed == [portalocker.LOCK_EX | portalocker.LOCK_NB, portalocker.LOCK_EX]
+
+
+def replacement_denied(code):
+    error = PermissionError(13, "synthetic Windows replacement denial")
+    error.winerror = code
+    return error
+
+
+@pytest.mark.parametrize("code", [5, 32, 33])
+def test_transient_windows_replacement_retries_same_synced_file(sim, monkeypatch, code):
+    path = em.TRADES_DIR / "retry.json"
+    em._atomic_write(path, {"old": True})
+    old = path.read_bytes()
+    calls, sleeps = [], []
+    original = em.os.replace
+    monkeypatch.setattr(em, "WINDOWS", True)
+    monkeypatch.setattr(em.time, "sleep", sleeps.append)
+
+    def retry(source, destination):
+        calls.append((source, destination))
+        assert destination == path
+        assert Path(source).read_bytes()  # The already-fsynced replacement remains intact.
+        if len(calls) <= 3:
+            assert path.read_bytes() == old  # No truncate/delete fallback is allowed.
+            raise replacement_denied(code)
+        original(source, destination)
+
+    monkeypatch.setattr(em.os, "replace", retry)
+    em._atomic_write(path, {"new": True})
+    assert len(calls) == 4 and len(set(str(source) for source, _ in calls)) == 1
+    assert sleeps == [0.025, 0.05, 0.1]
+    assert json.loads(path.read_text(encoding="utf-8")) == {"new": True}
+    assert not list(path.parent.glob(".pending-*"))
+
+
+def test_persistent_windows_denial_preserves_old_journal_and_raises(sim, monkeypatch):
+    path = em.TRADES_DIR / "preserved.json"
+    em._atomic_write(path, {"durable": "old"})
+    old = path.read_bytes()
+    calls, sleeps = [], []
+    error = replacement_denied(5)
+    monkeypatch.setattr(em, "WINDOWS", True)
+    monkeypatch.setattr(em.time, "sleep", sleeps.append)
+
+    def fail(source, destination):
+        calls.append(source)
+        raise error
+
+    monkeypatch.setattr(em.os, "replace", fail)
+    with pytest.raises(PermissionError) as result:
+        em._atomic_write(path, {"must_not_replace": True})
+    assert result.value is error
+    assert len(calls) == em.JOURNAL_REPLACE_ATTEMPTS
+    assert len(sleeps) == em.JOURNAL_REPLACE_ATTEMPTS - 1
+    assert sum(sleeps) < 1
+    assert path.read_bytes() == old
+    assert not list(path.parent.glob(".pending-*"))
+
+
+@pytest.mark.parametrize("windows,code", [(False, 5), (True, 2), (True, 112), (True, None)])
+def test_other_replace_errors_fail_immediately(sim, monkeypatch, windows, code):
+    error = replacement_denied(code)
+    calls, sleeps = [], []
+    monkeypatch.setattr(em, "WINDOWS", windows)
+    monkeypatch.setattr(em.time, "sleep", sleeps.append)
+
+    def fail(source, destination):
+        calls.append(source)
+        raise error
+
+    monkeypatch.setattr(em.os, "replace", fail)
+    with pytest.raises(PermissionError) as result:
+        em._atomic_write(em.TRADES_DIR / "failure.json", {})
+    assert result.value is error
+    assert len(calls) == 1 and not sleeps
+
+
+def test_unpersisted_journal_cannot_submit_a_buy(sim, monkeypatch):
+    from test_bot import approved, sig
+
+    import trade_assistant as ta
+
+    plan = ta.build_plan(sig())
+    monkeypatch.setattr(em, "WINDOWS", True)
+    monkeypatch.setattr(em.time, "sleep", lambda delay: None)
+
+    def fail(source, destination):
+        raise replacement_denied(5)
+
+    monkeypatch.setattr(em.os, "replace", fail)
+    with pytest.raises(PermissionError):
+        ta.execute(plan, approval=approved(plan))
+    assert not sim.writes
+
+
+def test_transient_windows_denials_preserve_durable_ids_through_kill(sim, monkeypatch):
+    from test_bot import approved, sig
+
+    import trade_assistant as ta
+
+    original = em.os.replace
+    denied = set()
+    sleeps = []
+    monkeypatch.setattr(em, "WINDOWS", True)
+    monkeypatch.setattr(em.time, "sleep", sleeps.append)
+    monkeypatch.setattr(em, "monitor_trade", lambda rec: None)
+
+    def retry(source, destination):
+        if str(source) not in denied:
+            denied.add(str(source))
+            raise replacement_denied(5)
+        original(source, destination)
+
+    def verify_before_request(kind, data):
+        saved = em.load_trades()[0]
+        if kind == "order":
+            assert any(
+                o["cid"] == data["newClientOrderId"] and o["submitted"] for o in saved["orders"]
+            )
+        if kind == "oco":
+            assert any(o["cid"] == data["listClientOrderId"] for o in saved["oco"])
+            assert {data["aboveClientOrderId"], data["belowClientOrderId"]} <= {
+                o["cid"] for o in saved["orders"]
+            }
+        if kind == "cancel_list":
+            assert any(o.get("cancel_cid") == data["newClientOrderId"] for o in saved["oco"])
+
+    monkeypatch.setattr(em.os, "replace", retry)
+    sim.prewrite = verify_before_request
+    sim.free["FOO"] = em.D(5)
+    plan = ta.build_plan(sig())
+    ta.execute(plan, approval=approved(plan))
+    em.close_bot_trade("FOOUSDT", "CLOSE_FOOUSDT")
+    assert em.load_trades()[0]["state"] == "closed"
+    assert sim.free["FOO"] == 5
+    assert (
+        sum(
+            data.get("side") == "BUY"
+            for method, path, data in sim.writes
+            if method == "post" and path == "order"
+        )
+        == 1
+    )
+    assert sleeps and set(sleeps) == {0.025}

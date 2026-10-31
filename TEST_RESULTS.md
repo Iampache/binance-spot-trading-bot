@@ -124,3 +124,26 @@ used to build `pyyaml-6.0.3-py3-none-any.whl` with normal pip build isolation an
 TLS verification. That wheel was installed into the development environment to
 run the complete offline suite and Bandit with `yaml.__with_libyaml__ == False`.
 Native Windows CI results remain separate from this local Linux verification.
+
+
+## Windows journal replacement denial
+
+A native Windows user run completed 112 tests successfully and failed
+`test_04_every_submission_has_durable_ids` with `PermissionError: [WinError 5]`
+from `os.replace`. The output establishes a denied replacement but does not
+identify the holder or distinguish transient contention from permanent ACL issues.
+
+The journal now retries only Windows errors 5 (access denied), 32 (sharing
+violation), and 33 (lock violation). Eight attempts reuse the same already-flushed
+temporary file, with 0.975 seconds total backoff. The old file is never truncated,
+deleted or replaced through a non-atomic fallback. Exhaustion propagates failure;
+other errors and POSIX failures are not retried.
+
+Ten added regression cases inject the native failure codes, verify successful
+recovery and unchanged old bytes while denied, bound persistent failures, ensure
+no buy is submitted if its intention cannot be saved, and exercise full
+buy/OCO/kill journaling with transient denial on every replacement. The original
+durable-ID test and its assertions are unchanged. All **123 tests pass locally**
+with three upstream warnings; lint, formatting, Bandit, dependency and whitespace
+checks pass. Native Windows rerun is required to confirm the user's actual case.
+No real trades, production credentials or external exchange connections are used.

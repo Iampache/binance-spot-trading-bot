@@ -35,6 +35,7 @@ STOP = threading.Event()
 MUTEX = threading.RLock()
 LOCK_STATE = threading.local()
 WINDOWS = sys.platform == "win32"
+JOURNAL_REPLACE_ATTEMPTS = 8
 TERMINAL = {"FILLED", "CANCELED", "REJECTED", "EXPIRED", "EXPIRED_IN_MATCH"}
 log = logging.getLogger(__name__)
 safety.secure_logging()
@@ -136,11 +137,32 @@ def _atomic_write(path, item):
             json.dump(item, fp, indent=2, allow_nan=False)
             fp.flush()
             os.fsync(fp.fileno())
-        os.replace(tmp, path)
+        _replace_journal(tmp, path)
         _sync_directory(path.parent)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+def _replace_journal(source, destination):
+    """Retry transient Windows denial without ever truncating the old journal.
+
+    Scanners/readers can temporarily prevent replacement on Windows. Error 5
+    also covers permanent ACL failures, so retries are bounded and exhaustion
+    propagates the original error. Nothing may submit an order until this returns.
+    """
+    for attempt in range(JOURNAL_REPLACE_ATTEMPTS):
+        try:
+            os.replace(source, destination)
+            return
+        except OSError as error:
+            if (
+                not WINDOWS
+                or getattr(error, "winerror", None) not in {5, 32, 33}
+                or attempt == JOURNAL_REPLACE_ATTEMPTS - 1
+            ):
+                raise
+            time.sleep(min(0.025 * 2**attempt, 0.2))
 
 
 def _sync_directory(path):
