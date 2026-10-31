@@ -38,7 +38,7 @@ def test_manual_bypasses_low_volume_while_automatic_still_rejects(sim):
     "levels", [{"stop": 99.5, "t1": 100.2, "t2": 101}, {"stop": 80, "t1": 105, "t2": 110}]
 )
 def test_manual_can_choose_stop_distance_and_rr_outside_strategy(sim, levels):
-    with pytest.raises(ValueError, match="Stop must"):
+    with pytest.raises(ValueError, match="Stop distance"):
         ta.build_plan({**sig(), **levels})
     plan = ta.build_plan(manual_signal(**levels))
     assert plan["rr"] < D("1.5")

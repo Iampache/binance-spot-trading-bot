@@ -538,3 +538,27 @@ finalization for up to its close plus normal API/retry latency.
 
 The new method needs v1.1.2 to replay. Older versions that cannot interpret a saved
 candle reference will fail closed; do not remove that evidence to downgrade.
+
+## Scanner target rounding and rejection context (v1.1.3)
+
+Scanner candidates place TP1 exactly at 1.5R before exchange rounding. Previously,
+flooring both a structural stop and generated target could drop the executable
+ratio below 1.5R even at the original entry. New scanner signals carry an explicit
+generated-target policy. During initial planning, the rounded stop and ORIGINAL
+signal entry define 1.5R/2.5R targets, rounded up to the next valid tick. Pullback
+TP1 cannot exceed the signal's observed resistance ceiling. Source reference
+prices in the candidate preview can therefore differ slightly from final,
+exchange-valid prices in the approval card.
+
+This does not chase a higher live quote or raise targets entered by a user. An
+unmarked/manual signal retains its supplied exits. Approved plan exits are fixed;
+final revalidation cannot silently change them. A newer entry that genuinely
+reduces reward/risk below 1.5 still rejects. Stop-distance and TP1 reward failures
+now have separate messages, including the checked entry/SL/TP1, required TP1 and
+original signal entry, rather than a combined ambiguous refusal. The 1%–6% stop
+range and 1.5R minimum are unchanged.
+
+A delivered scan proposal has Approve / Reject / Details buttons, and its summary
+candidate card says Awaiting approval. The three Manual / Assisted / Auto Setup
+choices are opened through `/check COIN` → `3 - Trading options`; they are not
+buttons on the automatic scanner proposal. No passing candidate buys on its own.

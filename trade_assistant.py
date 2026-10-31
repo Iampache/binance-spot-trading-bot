@@ -135,18 +135,43 @@ def build_plan(sig, *, approved_bounds=None, watch_id=None):
                 "Ask exceeds approved maximum buy price; approve a fresh proposal"
             )
     stop, t1, t2 = (em.round_to(sig[k], f["tick"]) for k in ("stop", "t1", "t2"))
+    if sig.get("target_policy") == "scanner_r_multiple_v1" and not manual and not algorithmic:
+        # Compile only NEW generated suggestions against the original signal entry.
+        # Never chase a newer quote, change manual levels or rewrite approved exits.
+        reference = em.D(sig["entry"])
+        reference_risk = reference - stop
+        t1, t2 = (
+            ((reference + multiple * reference_risk) / f["tick"]).to_integral_value(
+                rounding=ROUND_CEILING
+            )
+            * f["tick"]
+            for multiple in (MIN_RR, Decimal("2.5"))
+        )
+        ceiling = sig.get("resistance_ceiling")
+        if ceiling is not None and t1 > em.D(ceiling):
+            raise ValueError("Rounded scanner TP1 exceeds observed resistance; skip trade")
     if not 0 < stop < price < t1 < t2:
         raise ValueError("Rounded protective levels invalid")
     risk = price - stop
     if not Decimal(".01") <= risk / price <= Decimal(".06"):
         if not manual:
-            raise ValueError("Stop must be 1%-6% below entry and TP1 at least 1.5R")
+            raise ValueError(
+                f"Stop distance {risk / price * 100:.4f}% is outside 1%-6%. "
+                f"Checked entry {em.fmt(price)}, SL {em.fmt(stop)}; signal entry {em.fmt(sig['entry'])}."
+            )
         warnings.append(
             f"Stop distance {risk / price * 100:.2f}% is outside the 1%-6% strategy range"
         )
-    if (t1 - price) / risk < MIN_RR:
+    if t1 - price < MIN_RR * risk:
         if not manual:
-            raise ValueError("Stop must be 1%-6% below entry and TP1 at least 1.5R")
+            minimum = ((price + MIN_RR * risk) / f["tick"]).to_integral_value(
+                rounding=ROUND_CEILING
+            ) * f["tick"]
+            raise ValueError(
+                f"TP1 reward/risk is below 1.5R after price/tick checks. "
+                f"Checked entry {em.fmt(price)}, SL {em.fmt(stop)}, TP1 {em.fmt(t1)}; "
+                f"minimum TP1 {em.fmt(minimum)}. Signal entry {em.fmt(sig['entry'])}."
+            )
         warnings.append(f"TP1 reward/risk {(t1 - price) / risk:.2f}R is below 1.5R")
     if c.get_open_orders():
         raise ValueError("Existing exchange orders: cannot establish isolated ownership")

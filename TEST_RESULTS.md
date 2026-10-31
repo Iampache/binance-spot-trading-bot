@@ -456,3 +456,17 @@ Ruff/format, Bandit, dependency and whitespace checks pass. No live Binance
 account/market endpoint, production credentials, real trade or Telegram service
 was accessed. Actual runtime recovery still requires Binance to supply valid
 historical candle data; the implementation does not invent missing conversions.
+
+## Scanner reward/risk rounding alignment (v1.1.3)
+
+Eight new offline regressions reproduce an exact unrounded 1.5R setup becoming
+invalid after flooring stop/target, verify upward compilation only for explicit
+scanner-generated targets, enforce the original resistance ceiling, and preserve
+user-selected and already approved exits. A real quote increase still rejects
+with both reference and checked entries reported. The generated signal's source
+marker and separate stop-distance reason are verified. No threshold tolerance,
+live-price chasing, manual-policy weakening or exchange minimum bypass is added.
+
+Final local result: **345 passed, 3 native Windows skips**, three upstream
+warnings. Ruff/format, Bandit, dependency and whitespace checks pass. No live
+account connection, production credentials or real trades were used.

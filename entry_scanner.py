@@ -237,6 +237,8 @@ def analyze(symbol, chg24):
         t1=t1,
         t2=t2,
         risk_pct=risk_pct * 100,
+        target_policy="scanner_r_multiple_v1",
+        resistance_ceiling=max(h[-96:]) if setup.startswith("Pullback") else None,
         rsi=r,
         chg24=chg24,
         qty=qty,

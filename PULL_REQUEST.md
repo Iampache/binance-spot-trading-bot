@@ -30,7 +30,7 @@ explicit fill-time USDT reference valuation; missing fee evidence blocks final P
 not protection/liquidation. Pending approval cancellation never removes existing
 OCOs. Active closing remains available through the existing confirmed CLI path.
 
-Validation: **337 passed, 3 native Windows skips**, three upstream deprecation
+Validation: **345 passed, 3 native Windows skips**, three upstream deprecation
 warnings; Ruff/format, Bandit, pip dependency and whitespace checks pass. Tests use
 actual SDK transport simulations with sockets/HTTP forbidden.
 See TEST_RESULTS.md for exact totals, SECURITY_REVIEW.md for the implementation
@@ -56,3 +56,9 @@ the containing closed minute's OHLCV and uses its high to value actual BNB fees.
 P&L explicitly identifies this conservative market reference; Binance's private
 conversion is not claimed. Unknown, malformed, truncated or missing evidence still
 blocks, while proven flat trades can close without another exchange order.
+
+Scanner-generated targets now compile against the original reference entry and
+rounded stop with upward tick rounding, preserving the intended 1.5R/2.5R without
+chasing a higher quote. Pullback resistance ceilings and approved/manual exits
+remain fixed. Distinct stop-distance and reward/risk diagnostics show the actual
+checked prices and required TP1; genuinely insufficient reward still blocks.
