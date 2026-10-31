@@ -201,10 +201,14 @@ market halt, missing evidence or exchange minimum can leave residual exposure.
 
 Actual fill commissions and execution timestamps determine the journal's realized
 P&L. Base/USDT commissions are accounted directly. Optional BNB fee accounting
-records the actual BNB charged and values it using the last BNBUSDT aggregate trade
-at or before the fill (no more than one second earlier). That exchange reference
-is persisted with the fill; it is a defined USDT-equivalent valuation, **not a
-claim to reproduce Binance's private fee-conversion price exactly**. Missing or
+records the actual BNB charged and first uses the last BNBUSDT aggregate trade
+at or before the fill (no more than one second earlier). If that verified query
+returns an empty list, v1.1.2 can instead use the high of the validated, fully
+closed one-minute candle containing the fill. Evidence and method are persisted
+with each fee. This is a defined USDT-equivalent reference valuation, **not a
+claim to reproduce Binance's private fee-conversion price exactly**. Candle-high
+valuation is conservative relative to observed trades in that minute, not a
+proven upper bound on Binance's private conversion or historical quotes. Missing or
 invalid reference data blocks completion/new entries, but does not delay placing
 protective OCOs or unwinding confirmed inventory. Unsupported other fee assets
 remain unresolved instead of being treated as zero. Dust below lot/notional
@@ -506,3 +510,31 @@ These diagnostics do not widen the existing 1-second BNB valuation policy or
 force a trade closed. When valid evidence becomes available, normal recovery
 finishes accounting and delivers the final net result. A generic diagnostic still
 requires investigation; no live cause is inferred solely from the account balance.
+
+
+## Historical BNB fee fallback (v1.1.2)
+
+A legitimate fill can have no BNBUSDT aggregate trade in its preceding one-second
+window. That absence previously stranded a fully exited trade in accounting.
+The fix retains the original reference when available; only a successfully read,
+empty aggregate-trade list enables a second public-data source:
+
+- Query BNBUSDT `get_klines(interval="1m", startTime=minute_start,
+  endTime=minute_end, limit=1)` for the fee's containing UTC minute.
+- Verify the candle is closed against Binance server time, its exact boundaries,
+  positive/consistent OHLC, positive volumes and a positive trade count.
+- Charge the actual BNB commission quantity at that minute's **high**, recording
+  the source OHLCV, boundaries, trade count, observation time and method. Final
+  P&L and its percentage are explicitly reference-valued when this is used.
+
+This is an accounting lookup, not a buy/sell action or retrospective strategy
+signal. Completed-minute data after a fill is used solely for fee valuation.
+Timeouts, malformed/truncated trade responses, open candles and missing/invalid
+candle data do not become zero fees or permission to trade. Existing persisted
+references retain their original values; old and new methods can coexist. Replay
+validates the stored evidence without revaluing at today's BNB price. There is no
+state deletion or forced journal closure. A still-open fill minute may delay
+finalization for up to its close plus normal API/retry latency.
+
+The new method needs v1.1.2 to replay. Older versions that cannot interpret a saved
+candle reference will fail closed; do not remove that evidence to downgrade.

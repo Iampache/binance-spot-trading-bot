@@ -11,6 +11,8 @@ MAX_DAILY_LOSS_USD = 3
 
 
 RECONCILIATION_REASONS = {
+    "BNB_CANDLE_NOT_CLOSED": "Waiting for the BNB fee's containing minute to close; final P&L is pending.",
+    "BNB_CANDLE_INVALID": "Historical BNB candle failed validation; final P&L is pending.",
     "BNB_REFERENCE_MISSING": "Historical BNB fee reference unavailable; final P&L is pending.",
     "BNB_REFERENCE_TRUNCATED": "Historical BNB fee response is truncated; final P&L is pending.",
     "BNB_REFERENCE_INVALID": "Historical BNB fee reference failed validation; final P&L is pending.",

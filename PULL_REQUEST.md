@@ -30,7 +30,7 @@ explicit fill-time USDT reference valuation; missing fee evidence blocks final P
 not protection/liquidation. Pending approval cancellation never removes existing
 OCOs. Active closing remains available through the existing confirmed CLI path.
 
-Validation: **317 passed, 3 native Windows skips**, three upstream deprecation
+Validation: **337 passed, 3 native Windows skips**, three upstream deprecation
 warnings; Ruff/format, Bandit, pip dependency and whitespace checks pass. Tests use
 actual SDK transport simulations with sockets/HTTP forbidden.
 See TEST_RESULTS.md for exact totals, SECURITY_REVIEW.md for the implementation
@@ -48,3 +48,11 @@ execution/commission accounting. Fixed allow-listed reason codes expose missing
 BNB references, history truncation/incompleteness or reconciliation mismatches
 without serializing private exception data. No journal reset, fee assumption,
 valuation-window widening or bypass of the daily-loss gate is introduced.
+
+
+The confirmed BNB-reference blocker now has a bounded historical-candle fallback
+when the one-second aggregate window is genuinely empty. It persists/revalidates
+the containing closed minute's OHLCV and uses its high to value actual BNB fees.
+P&L explicitly identifies this conservative market reference; Binance's private
+conversion is not claimed. Unknown, malformed, truncated or missing evidence still
+blocks, while proven flat trades can close without another exchange order.

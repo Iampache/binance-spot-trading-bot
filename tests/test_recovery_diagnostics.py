@@ -18,6 +18,7 @@ def test_zero_inventory_missing_fee_reference_is_explained_then_closes_on_eviden
     sim.free["FOO"] = em.D(8)
     rec = buy(sim)
     fill_exits(sim)
+    sim.server_time_ms = sim.clock + 61000  # Closed minute, but both reference sources unavailable.
     writes = len(sim.writes)
     messages = []
     monkeypatch.setattr(em, "alert", lambda text: messages.append(text) or True)

@@ -871,13 +871,97 @@ def refresh(rec):
     save_trade(rec)
 
 
+def valid_bnb_candle_reference(reference, fill_time):
+    """Pure replay validation of persisted public-candle evidence."""
+    try:
+        start = fill_time // 60000 * 60000
+        opened, high, low, close, volume, quote_volume = (
+            D(reference[key]) for key in ("open", "high", "low", "close", "volume", "quote_volume")
+        )
+        return (
+            reference.get("interval") == "1m"
+            and type(reference.get("open_time")) is int
+            and reference["open_time"] == start
+            and type(reference.get("close_time")) is int
+            and reference["close_time"] == start + 59999
+            and type(reference.get("observed_server_time")) is int
+            and reference["observed_server_time"] > reference["close_time"]
+            and type(reference.get("trades")) is int
+            and reference["trades"] > 0
+            and 0 < low <= min(opened, close) <= max(opened, close) <= high
+            and volume > 0
+            and quote_volume > 0
+            and D(reference["price"]) == high
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def bnb_candle_fee_reference(fill_time):
+    """Closed containing-minute high: conservative traded-price reference, not an exact fee conversion."""
+    start = fill_time // 60000 * 60000
+    end = start + 59999
+    client = get_client()
+    now = client.get_server_time().get("serverTime")
+    if type(now) is not int or now <= 0:
+        raise ex.Uncertain(
+            "Invalid public server time for fee reference", reason_code="BNB_CANDLE_INVALID"
+        )
+    if now <= end:
+        raise ex.Uncertain(
+            "BNB fee reference history missing; containing minute not closed",
+            reason_code="BNB_CANDLE_NOT_CLOSED",
+        )
+    rows = client.get_klines(symbol="BNBUSDT", interval="1m", startTime=start, endTime=end, limit=1)
+    if rows == []:
+        raise ex.Uncertain(
+            "BNB fee reference history missing in both sources", reason_code="BNB_REFERENCE_MISSING"
+        )
+    if (
+        not isinstance(rows, list)
+        or len(rows) != 1
+        or not isinstance(rows[0], (list, tuple))
+        or len(rows[0]) < 9
+    ):
+        raise ex.Uncertain(
+            "Invalid BNB historical candle response", reason_code="BNB_CANDLE_INVALID"
+        )
+    row = rows[0]
+    reference = {
+        "method": "closed_1m_high_at_fill",
+        "symbol": "BNBUSDT",
+        "interval": "1m",
+        "fill_time": fill_time,
+        "open_time": row[0],
+        "close_time": row[6],
+        "observed_server_time": now,
+        "open": row[1],
+        "high": row[2],
+        "low": row[3],
+        "close": row[4],
+        "volume": row[5],
+        "quote_volume": row[7],
+        "trades": row[8],
+        "price": row[2],
+    }
+    if not valid_bnb_candle_reference(reference, fill_time):
+        raise ex.Uncertain(
+            "Invalid BNB historical candle evidence", reason_code="BNB_CANDLE_INVALID"
+        )
+    return reference
+
+
 def bnb_fee_reference(fill_time):
     """Documented valuation reference, not Binance's private conversion price."""
     rows = get_client().get_aggregate_trades(
         symbol="BNBUSDT", startTime=fill_time - 1000, endTime=fill_time, limit=1000
     )
+    if not isinstance(rows, list):
+        raise ex.Uncertain(
+            "Invalid BNB fee reference response", reason_code="BNB_REFERENCE_INVALID"
+        )
     if not rows:
-        raise ex.Uncertain("BNB fee reference history missing", reason_code="BNB_REFERENCE_MISSING")
+        return bnb_candle_fee_reference(fill_time)
     if len(rows) >= 1000:
         raise ex.Uncertain(
             "BNB fee reference history truncated", reason_code="BNB_REFERENCE_TRUNCATED"
@@ -938,16 +1022,25 @@ def fee_in_quote(row, base):
     if row["commissionAsset"] == "USDT":
         return fee
     reference = row.get("fee_valuation", {})
-    if (
-        row["commissionAsset"] != "BNB"
-        or reference.get("symbol") != "BNBUSDT"
-        or reference.get("method") != "last_aggregate_trade_at_or_before_fill"
-        or reference.get("fill_time") != int(row["time"])
-        or type(reference.get("aggregate_id")) is not int
-        or type(reference.get("time")) is not int
-        or not int(row["time"]) - 1000 <= reference["time"] <= int(row["time"])
-        or D(reference.get("price", 0)) <= 0
-    ):
+    valid = (
+        row["commissionAsset"] == "BNB"
+        and isinstance(reference, dict)
+        and reference.get("symbol") == "BNBUSDT"
+        and reference.get("fill_time") == int(row["time"])
+        and D(reference.get("price", 0)) > 0
+    )
+    if valid:
+        if reference.get("method") == "last_aggregate_trade_at_or_before_fill":
+            valid = (
+                type(reference.get("aggregate_id")) is int
+                and type(reference.get("time")) is int
+                and int(row["time"]) - 1000 <= reference["time"] <= int(row["time"])
+            )
+        elif reference.get("method") == "closed_1m_high_at_fill":
+            valid = valid_bnb_candle_reference(reference, int(row["time"]))
+        else:
+            valid = False
+    if not valid:
         raise ex.Uncertain(
             "Third-asset commission reference missing or invalid",
             reason_code="FEE_VALUATION_PENDING",
@@ -1003,7 +1096,17 @@ def finish_if_flat(rec, f):
         return False
     attach_fee_valuations(rec)
     rec["realized_events"] = realized_events(rec)
-    if any(row.get("fee_valuation") for order in rec["orders"] for row in order["trades"]):
+    references = [
+        row["fee_valuation"]
+        for order in rec["orders"]
+        for row in order["trades"]
+        if row.get("fee_valuation")
+    ]
+    if any(ref["method"] == "closed_1m_high_at_fill" for ref in references):
+        rec["pnl_valuation"] = (
+            "Actual BNB commission quantities; USDT reference valuation includes closed fill-minute highs (conservative, not Binance's private conversion rate)"
+        )
+    elif references:
         rec["pnl_valuation"] = (
             "Actual BNB commissions valued at preceding BNBUSDT trade reference (within 1 second)"
         )
@@ -1193,15 +1296,26 @@ def trade_result_text(rec):
         lines.append(
             f"Net {'result' if final else 'realized so far'}: {pnl:+.4f} USDT ({pnl / cost * 100:+.2f}% of entry cost)"
         )
-        lines.append(
-            "After recorded commissions."
-            + (
-                " BNB fees use fill-time USDT reference values."
-                if rec.get("pnl_valuation")
-                or any(t["commissionAsset"] == "BNB" for t in sells + list(executions(rec, "BUY")))
-                else ""
-            )
+        candle_valued = any(
+            t.get("fee_valuation", {}).get("method") == "closed_1m_high_at_fill"
+            for t in sells + list(executions(rec, "BUY"))
         )
+        if candle_valued:
+            lines.append(
+                "BNB fees valued at closed fill-minute highs; P&L is reference-valued, not an exact Binance conversion."
+            )
+        else:
+            lines.append(
+                "After recorded commissions."
+                + (
+                    " BNB fees use fill-time USDT reference values."
+                    if rec.get("pnl_valuation")
+                    or any(
+                        t["commissionAsset"] == "BNB" for t in sells + list(executions(rec, "BUY"))
+                    )
+                    else ""
+                )
+            )
     except (ValueError, ex.Uncertain):
         if final:
             raise
@@ -1307,7 +1421,7 @@ def monitor_trade(rec, max_checks=None):
                 log.error("Journal update failed; existing evidence preserved and entries blocked")
             if failures == 1 or failures % 12 == 0:
                 alert(
-                    safety.safe_error(error)
+                    safety.safe_error(error).rstrip(".")
                     + ". New entries blocked; monitor will retry reconciliation."
                 )
         checks += 1
@@ -1347,7 +1461,10 @@ def recover_trades():
                 log.error(
                     "Recovery journal update failed; existing evidence preserved and entries blocked"
                 )
-            alert(safety.safe_error(error) + ". Recovery will continue; new entries blocked.")
+            alert(
+                safety.safe_error(error).rstrip(".")
+                + ". Recovery will continue; new entries blocked."
+            )
     return records
 
 

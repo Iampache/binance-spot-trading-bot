@@ -198,3 +198,22 @@ OctoBot documentation was compared for interface/validation practices only; no
 other bot was run or connected. Historical walk-forward validation, real execution
 conditions and an independent human review remain outstanding. Details and exact
 rules are in ALGORITHM_DESIGN.md.
+
+## Confirmed BNB-reference blocker (v1.1.2)
+
+The owner supplied `BNB_REFERENCE_MISSING` with zero bot inventory. Reviewed a
+fallback that preserves the original 1s trade reference and uses a closed,
+containing 1m BNBUSDT candle only after a successful, empty aggregate response.
+It checks exchange server time, exact minute containment, coherent positive OHLC,
+positive volumes/trade count and equality of price to the recorded high. Pure
+replay checks preserve the new evidence and avoid conversion using current prices.
+Network uncertainty or invalid/truncated data cannot invoke a lower-evidence path.
+Confirmed ownership, terminal execution, daily-loss accounting and hard trading
+limits remain required. The lookup cannot submit an exchange order.
+
+A candle high is conservative relative to observed trades in that minute; it is
+not proof of Binance's private conversion, bid/ask quotes or economic purchase
+cost of historical BNB holdings. Final P&L explicitly identifies the valuation
+method. Completed-minute observations are ex-post accounting only, not inputs to
+an earlier entry strategy. Missing data still blocks. Downgrade readers may not
+understand the new method and must retain, not delete, its evidence.

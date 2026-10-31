@@ -437,3 +437,22 @@ updated diagnostic response is needed to identify their actual remaining blocker
 Final local result: **317 passed, 3 native Windows skips**, three upstream
 websockets warnings. Ruff/format, Bandit, dependency and whitespace checks pass.
 No live account access or real trades were performed.
+
+## Historical BNB candle reference recovery (v1.1.2)
+
+Twenty new offline cases verify the exact containing-minute SDK query, verified
+minute closure, boundary timestamps, positive consistent OHLCV/trade count,
+wrong/NaN/empty invalid evidence, timeout not treated as empty, persisted-evidence
+validation, mixed old/new sources and no revaluation at current prices. The
+reported flat-position case is reproduced with empty aggregate history plus valid
+historical candle evidence: journal closes, net fee-reference P&L and daily loss
+reconcile, unrelated holdings stay unchanged and no further exchange orders occur.
+Missing both references still blocks, and the original no-guessing/unknown-order
+regressions remain. Simulator defaults provide no candle data; a test must supply
+valid evidence explicitly to obtain this fallback.
+
+Final local result: **337 passed, 3 native Windows skips**, three upstream warnings.
+Ruff/format, Bandit, dependency and whitespace checks pass. No live Binance
+account/market endpoint, production credentials, real trade or Telegram service
+was accessed. Actual runtime recovery still requires Binance to supply valid
+historical candle data; the implementation does not invent missing conversions.

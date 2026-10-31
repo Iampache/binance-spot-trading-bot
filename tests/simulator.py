@@ -42,6 +42,8 @@ class SpotSimulator:
         self.bnb_discount = False
         self.discount_multiplier = D(".75")
         self.bnb_history = []
+        self.bnb_candles = []
+        self.server_time_ms = None
         self.clock = int(time.time() * 1000)
         self.prewrite = lambda kind, data: None
         self.response_override = None
@@ -160,7 +162,11 @@ class SpotSimulator:
                 return value
         if method == "get":
             if path == "time":
-                return {"serverTime": int(time.time() * 1000)}
+                return {
+                    "serverTime": self.server_time_ms
+                    if self.server_time_ms is not None
+                    else int(time.time() * 1000)
+                }
             if self.read_failures and path in ("order", "orderList", "myTrades"):
                 self.read_failures -= 1
                 raise TimeoutError("synthetic transport failure")
@@ -215,6 +221,8 @@ class SpotSimulator:
                         )
                     },
                 }
+            if path == "klines" and data["symbol"] == "BNBUSDT":
+                return copy.deepcopy(self.bnb_candles)
             if path == "aggTrades":
                 return [
                     copy.deepcopy(row)
