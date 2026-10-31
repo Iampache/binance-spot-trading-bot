@@ -267,3 +267,25 @@ Windows launcher skips remain unchanged. Lint, formatting, Bandit, dependency an
 whitespace checks pass. No live account was accessed and no real trade was
 executed by the implementing agent. The native live expiry evidence came from
 the user's provided history/status, not an agent-side account connection.
+
+## Telegram now/watch entry redesign
+
+Added 40 offline regressions through the actual python-binance 1.0.37 transport
+interface. They cover ask-based capped immediate entry, no quantity increase on
+price improvement, watch triggering/expiry/cancellation, restart and read-failure
+cancellation, stop gaps before validation and after execution, partial/expired/
+rejected/unknown/accepted-timeout buys, 12 crash checkpoints, immutable watch
+authorization, exchange minimums, no unrelated liquidation, persistent slot
+blocking, and Telegram three-number/preset flows requiring explicit approval.
+
+A post-fill gap regression exposed local OCO validation failures being classified
+as uncertain submissions. A dedicated pre-transport exception now marks only
+those known-unsent requests rejected, allowing ownership-limited recovery;
+transport exceptions retain the original no-blind-retry reconciliation rule.
+
+Local Linux Python 3.12 result: **242 passed, 3 skipped**, three upstream
+websockets deprecation warnings. The three native Windows launcher checks remain
+skipped on Linux. Ruff lint/format, Bandit, pip check and diff whitespace checks
+pass. No production credentials, live Binance connections or real orders were
+used. Tests do not establish production matching-engine behavior or native
+Windows success; Windows CI/user verification remains necessary.

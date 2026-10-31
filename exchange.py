@@ -8,6 +8,10 @@ from importlib.metadata import version
 from binance.exceptions import BinanceAPIException
 
 
+class NotSubmitted(ValueError):
+    """Local preparation failed before an order transport could be called."""
+
+
 class Uncertain(RuntimeError):
     pass
 

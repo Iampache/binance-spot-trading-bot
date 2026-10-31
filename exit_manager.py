@@ -201,6 +201,7 @@ def load_trades():
                 or rec["state"]
                 not in {
                     "intent",
+                    "watching_entry",
                     "buy_submitting",
                     "bought",
                     "protection_submitting",
@@ -279,7 +280,7 @@ def active_trades():
     return [rec for rec in load_trades() if rec["state"] != "closed"]
 
 
-def new_trade(plan, approval=None):
+def new_trade(plan, approval=None, entry_watch=None):
     ensure_context()
     rec = {
         "version": 3,
@@ -295,6 +296,8 @@ def new_trade(plan, approval=None):
         "accounted": False,
         "close_requested": False,
     }
+    if entry_watch is not None:
+        rec.update(state="watching_entry", entry_watch=entry_watch)
     if approval is not None:
         rec["approval_id"] = approval["approval_id"]
         rec["approved_bounds"] = {k: str(v) for k, v in approval.items()}
@@ -626,12 +629,30 @@ def submit_order(rec, item):
         if STOP.is_set():
             raise ValueError("Shutdown in progress; no entry submitted")
         bounds = rec.get("approved_bounds", {})
-        if not rec.get("approval_id") or time.time() + 15 >= float(bounds.get("expires_at", 0)):
+        deadline = D(bounds.get("expires_at", 0))
+        if rec.get("entry_watch"):
+            from trade_assistant import watch_deadline
+
+            deadline = watch_deadline(rec)
+            if rec["entry_watch"].get("active") or rec["entry_watch"].get("result") != "triggered":
+                raise ValueError("Watch not authorized to submit")
+        if not rec.get("approval_id") or D(time.time()) + 15 >= deadline:
             raise ValueError("Approval expired during validation; no entry submitted")
+        if D(item["qty"]) > D(bounds["qty"]) or D(item["price_cap"]) > D(bounds["price"]):
+            raise ValueError("Buy would exceed approved quantity or price ceiling")
+        if rec["plan"].get("entry_mode") in ("now", "watch"):
+            from trade_assistant import entry_quote
+
+            bid, ask = entry_quote(rec["symbol"])
+            last = D(get_client().get_symbol_ticker(symbol=rec["symbol"])["price"])
+            if min(bid, last) <= D(rec["plan"]["stop"]) or ask > D(item["price_cap"]):
+                raise ValueError("Entry quote invalidated before submission; no buy submitted")
         if D(item["qty"]) * D(item["price_cap"]) * (1 + D(rec["plan"]["fee_rate"])) > D(
             bounds["cost"]
         ):
             raise ValueError("Buy would exceed approved cost ceiling")
+    if item["side"] == "BUY" and (STOP.is_set() or D(time.time()) + 15 >= deadline):
+        raise ValueError("Entry authorization expired or shutdown requested; no buy submitted")
     item["submitted"] = True
     save_trade(rec)
     try:
@@ -741,12 +762,15 @@ def coverage(rec):
 
 
 def place_oco(symbol, qty, tp, stop, tick, f=None, client_id=None, order_cids=None):
-    f = f or symbol_filters(symbol)
-    tp, stop = round_to(tp, tick), round_to(stop, tick)
-    validate_qty(qty, f, stop)
-    live = D(get_client().get_symbol_ticker(symbol=symbol)["price"])
-    if not 0 < stop < live < tp:
-        raise ValueError("Market moved outside protective levels")
+    try:
+        f = f or symbol_filters(symbol)
+        tp, stop = round_to(tp, tick), round_to(stop, tick)
+        validate_qty(qty, f, stop)
+        live = D(get_client().get_symbol_ticker(symbol=symbol)["price"])
+        if not 0 < stop < live < tp:
+            raise ValueError("Market moved outside protective levels")
+    except Exception as error:
+        raise ex.NotSubmitted(safety.safe_error(error)) from None
     return get_client().create_oco_order(
         symbol=symbol,
         side="SELL",
@@ -800,7 +824,7 @@ def submit_protection(rec, qty, t1, t2, stop, f):
                 item["order_cids"],
             )
         except Exception as error:
-            if ex.definitely_rejected(error):
+            if isinstance(error, ex.NotSubmitted) or ex.definitely_rejected(error):
                 item["local_rejection"] = True
                 for order in (top, bottom):
                     order.update(status="REJECTED", local_rejection=True)
@@ -927,10 +951,15 @@ def realized_events(rec):
     return events
 
 
-def todays_loss():
+def todays_loss(*, watch_id=None):
     today = datetime.now(timezone.utc).date()
     daily = D(0)
     for rec in load_trades():
+        if watch_id is not None:
+            from trade_assistant import empty_watch
+
+            if empty_watch(rec, watch_id):
+                continue
         if rec["state"] != "closed":
             raise ValueError("Open or unresolved bot trade exists")
         # Recompute from exchange evidence, never trust missing/estimated P&L.
@@ -1017,6 +1046,10 @@ def reconcile_trade(rec):
         rec.update(latest)
         if rec["state"] == "closed":
             return True
+        if rec.get("entry_watch", {}).get("active") is True:
+            from trade_assistant import advance_watch
+
+            return advance_watch(rec)
         refresh(rec)
         buys = [o for o in rec["orders"] if o["purpose"] == "buy"]
         f = symbol_filters(rec["symbol"])
@@ -1072,6 +1105,11 @@ def mark_attention(rec):
         latest = next(r for r in load_trades() if r["id"] == rec["id"])
         rec.clear()
         rec.update(latest)
+        if rec.get("entry_watch", {}).get("active") and not rec["orders"] and not rec["oco"]:
+            from trade_assistant import close_watch
+
+            close_watch(rec, "monitor interrupted; fresh approval required")
+            return
         if rec["state"] != "closed":
             rec["state"] = "needs_attention"
             save_trade(rec)
@@ -1098,13 +1136,32 @@ def monitor_trade(rec, max_checks=None):
         checks += 1
         if max_checks is not None and checks >= max_checks:
             return
-        STOP.wait(min(60, POLL_SECONDS * 2 ** min(failures, 4)))
+        STOP.wait(
+            min(
+                60,
+                (2 if rec.get("entry_watch", {}).get("active") else POLL_SECONDS)
+                * 2 ** min(failures, 4),
+            )
+        )
 
 
 def recover_trades():
     records = active_trades()
     for rec in records:
         try:
+            with operation_lock():
+                latest = next(r for r in load_trades() if r["id"] == rec["id"])
+                rec.clear()
+                rec.update(latest)
+                if (
+                    rec.get("entry_watch", {}).get("active")
+                    and not rec["orders"]
+                    and not rec["oco"]
+                ):
+                    from trade_assistant import close_watch
+
+                    close_watch(rec, "process restarted; fresh approval required")
+                    continue
             reconcile_trade(rec)
         except Exception as error:
             try:
@@ -1182,6 +1239,14 @@ def status_report():
         for rec in active:
             try:
                 # /status never submits or cancels an order.
+                if rec.get("entry_watch", {}).get("active"):
+                    lines.append(
+                        f"{rec['symbol']}: ENTRY WATCH; maximum buy {rec['plan']['price']}; "
+                        f"stop {rec['plan']['stop']}; expires in "
+                        f"{max(0, int(D(rec['entry_watch']['expires_at']) - D(time.time())))}s; "
+                        "no exchange buy submitted. /cancel to stop."
+                    )
+                    continue
                 refresh(rec)
                 lines.append(
                     f"{rec['symbol']}: {rec['state']}; bot remaining {inventory(rec)}; stop coverage {coverage(rec)}"

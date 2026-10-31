@@ -8,16 +8,17 @@ B) ON DEMAND: send /check (or /check_ticker or /check-ticker) -> it asks for the
        WARNING - WAIT 15 MIN  -> buttons: 2 Recheck in 15 min | 3 Manual | Cancel
    1 -> shows Entry / SL / TP1 / TP2 / size / $ at risk with [Approve] [Reject]
    2 -> rechecks after 15 minutes and sends you the updated status
-   3 -> asks you to send:  ENTRY STOP TP1 TP2   (example: 0.0777 0.0766 0.0795 0.0806)
-        then shows the same plan with [Approve] [Reject]
+   3 -> explicit manual risk override: Enter now (STOP TP1 TP2), preset, or
+        Wait at my price (ENTRY STOP TP1 TP2); every path requires final approval.
    Approve -> live price re-check -> price-capped IOC buy -> 2 OCO exits (stop + targets), original stops retained after TP1.
 
 Safeguards (apply to ALL paths, including manual):
   - Only taps/messages from YOUR chat ID (TELEGRAM_CHAT_ID) are accepted
   - Proposals expire after 5 minutes (APPROVAL_TTL_SECONDS); /check cards after 10 (CHECK_TTL_SECONDS)
-  - On Approve the live price is rechecked: moved >0.5% since the proposal -> refused
-  - Size cap, open-trade limit, daily loss limit, reward/risk >= 1.5 to TP1, stop below price
-  - Manual levels must be within 1% of the live price (entries are price-capped IOC orders)
+  - Automatic plans retain 1% risk, 3 USDT daily budget and strategy filters.
+  - Manual override exceptions are explicit; 12 USDT cap, one active trade and exchange rules remain.
+  - Enter now freezes the approved ask-based cap; Wait watches locally for up to 15 minutes.
+  - Watch restart/read failure cancels authorization; submitted buys always retain recovery.
   - If protection fails, confirmed bot-owned free inventory is reconciled before an exit attempt
 
 Other commands: /status  /cancel  /help
@@ -69,7 +70,9 @@ HELP = (
     "/check BTC/USDT - check directly\n"
     "/status - balance and open orders\n"
     "/cancel - cancel what you were doing\n\n"
-    "After /check: 1 = enter with the scanner plan, 2 = recheck in 15 min, 3 = manual levels."
+    "After /check: 1 = scanner plan, 2 = recheck in 15 min, 3 = manual override. "
+    "Manual: Enter now (3 levels), Now preset (no typing), or Wait at my price (4 levels). "
+    "All require final approval. /cancel stops untriggered entry watches and pending proposals."
 )
 
 
@@ -123,6 +126,19 @@ def proposal_text(sig, p, note):
         f"Gross TP1 / TP2 gains before fees: about +${p['gain1']:.2f} / +${p['gain2']:.2f}",
         "After TP1 the ORIGINAL OCO2 stop remains active; breakeven is NOT automatic.",
     ]
+    mode = p.get("entry_mode", "legacy")
+    if mode == "now":
+        lines += [
+            f"ENTER NOW: maximum buy price {em.fmt(p['price'])} (ask + 0.2%, tick-rounded).",
+            "One IOC attempt; no fill means no retry. Price above cap needs a new proposal.",
+        ]
+    elif mode == "watch":
+        lines += [
+            f"WAIT AT MY PRICE: maximum buy {em.fmt(p['price'])}; watch lasts 15 minutes after approval.",
+            "No resting exchange buy. Stop observed before entry cancels the watch.",
+            "Restart or quote-read failure cancels the watch; approve again. Gaps may still occur between checking and execution.",
+            "/cancel stops an untriggered watch. One IOC attempt only.",
+        ]
     if note:
         lines.append(note)
     if p.get("bnb_discount"):
@@ -343,6 +359,7 @@ def handle_check_callback(cb, action, cid):
     res = item["res"]
     if action == "CX":
         checks.pop(cid, None)
+        state.clear()
         ack("Cancelled.")
         edit(item, "CANCELLED.")
     elif action == "C1":
@@ -375,15 +392,46 @@ def handle_check_callback(cb, action, cid):
         timer.daemon = True
         recheck_timers.add(timer)
         timer.start()
+    elif action in ("CN", "CW", "CQ"):
+        ack("Choose your levels, then approve the final proposal.")
+        state.clear()
+        state.update(
+            step="manual",
+            symbol=res["symbol"],
+            status=res["status"],
+            entry_mode="watch" if action == "CW" else "now",
+            t=time.time(),
+        )
+        if action == "CQ":
+            try:
+                _, ask = ta.entry_quote(res["symbol"])
+                handle_manual(f"{ask * em.D('.97')} {ask * em.D('1.05')} {ask * em.D('1.08')}")
+            except Exception as error:
+                say(f"Cannot build preset: {safe(error)}")
+        else:
+            say(
+                "MANUAL RISK OVERRIDE. "
+                + (
+                    "Enter now: send STOP TP1 TP2 (3 numbers). Entry cap uses a fresh ask + 0.2%."
+                    if action == "CN"
+                    else "Wait at my price: send ENTRY STOP TP1 TP2 (4 numbers). A 15-minute local watch starts after approval."
+                )
+                + " Final quantity/cost and risk require approval. /cancel to stop."
+            )
     elif action == "C3":
-        checks.pop(cid, None)
         ack("Manual override mode.")
         edit(
             item,
             "MANUAL risk override selected. Strategy/liquidity and account-risk gates are bypassed.",
         )
         state.clear()
-        state.update(step="manual", symbol=res["symbol"], status=res["status"], t=time.time())
+        state.update(
+            step="manual",
+            symbol=res["symbol"],
+            status=res["status"],
+            entry_mode="watch",
+            t=time.time(),
+        )
         say(
             f"MANUAL entry for {res['symbol'][:-4]}/USDT. Current price: {sc.fmt(res['price'])}\n"
             f"Send 4 numbers in one message:\nENTRY STOP TP1 TP2\n"
@@ -392,19 +440,44 @@ def handle_check_callback(cb, action, cid):
             "Manual override bypasses liquidity/strategy checks, 1% sizing and the 3 USDT daily-loss gate. "
             "The 12 USDT cap, one active trade and valid protective OCOs remain mandatory. "
             "You must approve the final risk-override proposal before any buy.\n"
-            f"(Entry must be within 1% of the live price. /cancel to stop.)"
+            "Four numbers select WAIT AT MY PRICE: a 15-minute local watch, no resting buy. "
+            "For faster entry choose a button below. /cancel to stop.",
+            reply_markup=json.dumps(
+                {
+                    "inline_keyboard": [
+                        [{"text": "Enter now: type 3 levels", "callback_data": f"CN:{cid}"}],
+                        [{"text": "Wait at my price: type 4 levels", "callback_data": f"CW:{cid}"}],
+                        [{"text": "Now preset: SL -3%, TP +5%/+8%", "callback_data": f"CQ:{cid}"}],
+                        [{"text": "Cancel", "callback_data": f"CX:{cid}"}],
+                    ]
+                }
+            ),
         )
 
 
 def handle_manual(text):
+    mode = state.get("entry_mode", "watch")
+    count = 3 if mode == "now" else 4
     try:
         nums = [float(x) for x in text.replace(",", " ").split()]
-        if len(nums) != 4 or not all(math.isfinite(x) for x in nums):
+        if len(nums) != count or not all(math.isfinite(x) for x in nums):
             raise ValueError
     except ValueError:
-        say("Please send 4 numbers: ENTRY STOP TP1 TP2 (or /cancel).")
+        say(
+            "Please send "
+            + ("3 numbers: STOP TP1 TP2" if count == 3 else "4 numbers: ENTRY STOP TP1 TP2")
+            + " (or /cancel)."
+        )
         return
-    entry, stop, t1, t2 = nums
+    if mode == "now":
+        try:
+            _, ask = ta.entry_quote(state["symbol"])
+        except Exception as error:
+            say(f"Cannot read entry quote: {safe(error)}")
+            return
+        entry, stop, t1, t2 = float(ask), *nums
+    else:
+        entry, stop, t1, t2 = nums
     if not (0 < stop < entry < t1 < t2):
         say("The order must be STOP < ENTRY < TP1 < TP2. Try again or /cancel.")
         return
@@ -416,6 +489,7 @@ def handle_manual(text):
         t1=t1,
         t2=t2,
         setup="MANUAL entry (your levels)",
+        entry_mode=mode,
         manual_override=True,
         rsi=0,
         chg24=0,
@@ -488,7 +562,12 @@ def handle_callback(cb):
         edit(item, "NOT PLACED: another trade is still being managed.")
         return
     try:
-        old, fresh = item["plan"], ta.build_plan(item["sig"])
+        old = item["plan"]
+        fresh = (
+            ta.build_plan(item["sig"], approved_bounds=old)
+            if old.get("entry_mode", "legacy") != "legacy"
+            else ta.build_plan(item["sig"])
+        )
     except ValueError as e:
         trade_lock.release()
         edit(item, f"NOT PLACED: {safety.redact(str(e))}")
@@ -554,8 +633,13 @@ def handle_message(msg):
         for timer in list(recheck_timers):
             timer.cancel()
         recheck_timers.clear()
+        try:
+            watches = ta.cancel_entry_watches()
+        except Exception as error:
+            say(f"Watch cancellation could not be confirmed: {safe(error)}. Inspect /status.")
+            watches = 0
         say(
-            "Cancelled pending proposals, manual entry and scheduled rechecks. "
+            f"Cancelled {watches} untriggered entry watch(es), pending proposals, manual entry and scheduled rechecks. "
             "Already submitted orders and protective OCOs remain active; /status shows them."
         )
     elif low.startswith("/check"):

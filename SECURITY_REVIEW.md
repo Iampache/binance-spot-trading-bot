@@ -148,3 +148,29 @@ The implementation and new scenarios were tested offline only. Native Windows,
 actual BNB debits, historical endpoint availability and live Telegram delivery
 remain unverified by the implementing agent. The user must review the documented
 valuation convention before relying on USDT-equivalent daily P&L as exact cash P&L.
+
+## Entry-mode follow-up review
+
+The new modes retain LIMIT IOC (`Client.create_order`) and verified two-list OCO
+protection (`Client.create_oco_order`) from installed python-binance 1.0.37. The
+SDK also exposes generated `v3_post_order_list_oto`/`v3_post_order_list_otoco`
+wrappers. This change does not introduce a native linked-order lifecycle or leave
+a resting entry that can fill while the client is offline; it preserves existing
+confirmed-fill accounting and two-exit recovery instead.
+
+Follow-up code review checked authorization binding, account operation locking,
+watch disarm-before-intent ordering, persistent client IDs, conservative unknown
+results, final quote/deadline validation, restart handling, baseline preservation,
+status read-only behavior and local cancellation versus submitted-order recovery.
+It identified and fixed the OCO pre-transport classification issue reproduced by
+the post-fill gap regression. This is an implementation follow-up review, not an
+independent third-party security certification.
+
+Remaining limitations: local polling cannot observe every stop touch; price can
+gap between read, buy and OCO placement. Watches are canceled after interruption
+rather than resumed with stale market assumptions. Buy plus two protective OCOs
+are not atomic. Recovery needs functioning exchange access and exchange-valid
+sell quantities; dust, account activity by others, exchange outages and extreme
+slippage can still expose funds. Optional presets are human-approved manual
+levels with explicit strategy/account-risk exceptions, not safe recommendations.
+The automatic scanner's strategy and numeric defaults are unchanged.

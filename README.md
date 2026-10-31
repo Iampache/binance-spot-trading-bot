@@ -88,7 +88,7 @@ cap to **12 USDT**. The user later explicitly authorized manual liquidity/strate
 and 1%/daily-loss overrides. Automatic policy remains unchanged. The entry point
 and selected policy are persisted in each new trade's plan and approved bounds.
 
-Choose **3 - Manual override** from a `/check` card, provide ENTRY STOP TP1 TP2,
+Choose **3 - Manual override** from a `/check` card, select an entry mode (described below),
 and review the labeled override proposal. Selecting Manual or submitting levels
 does not itself place a buy. Trend/setup warnings do not block a manual plan.
 The bot uses the available balance up to the 12 USDT position cap for manual
@@ -163,7 +163,7 @@ or other bots: external balance activity cannot be coordinated atomically.
 
 `/status` reports available USDT, active journal states, remaining bot quantities,
 and verified stop coverage (or explicitly UNKNOWN). `/cancel` invalidates pending
-proposals, manual entry and scheduled rechecks; it does **not** cancel submitted
+proposals, manual entry, untriggered entry watches and scheduled rechecks; it does **not** cancel submitted
 orders or protective exits. Previously approved requests already in execution
 retain their durable recovery obligations.
 
@@ -297,3 +297,41 @@ A successful protection notification is a verified snapshot, not a guarantee tha
 orders cannot subsequently fill, be canceled externally, or become unavailable.
 Unknown outcomes are never reported as zero fill merely because the balance looks
 unchanged. Confirmed zero-fill notifications do not offer an automatic retry.
+
+
+## Fast Telegram entry modes
+
+Send `/check PARTI`, then choose **3 - Manual override**:
+
+- **Enter now:** type only `STOP TP1 TP2`. The proposal uses the current best ask
+  plus 0.2%, rounded up to one valid tick, as the **maximum buy price**. Approval
+  freezes that cap and the displayed maximum quantity, cost and estimated loss.
+  A higher ask requires a fresh proposal; lower prices cannot increase quantity.
+- **Now preset: SL -3%, TP +5%/+8%:** no level typing. Levels are based on a fresh
+  ask. These are optional manual levels, not a scanner recommendation. Review the
+  resulting prices, warnings and quantity, then explicitly approve or reject.
+- **Wait at my price:** type `ENTRY STOP TP1 TP2`. After approval the bot watches
+  locally for up to 15 minutes, polling roughly every 2 seconds plus API latency.
+  It submits one price-capped IOC when the ask reaches your entry and observed
+  bid/last remain above the stop. It places **no resting Binance buy** while waiting.
+
+For example, with PARTI at 0.0485 and levels
+`0.0480 0.0475 0.0490 0.0500`, Wait watches for ask <= 0.0480.
+An observed drop directly to 0.0465 cancels without buying. A stop breach between
+polls or after the last preflight check can still be missed. The watch therefore
+cannot guarantee that no fill ever occurs below the stop; confirmed fills retain
+existing OCO validation, emergency exit and durable recovery. Market exits can
+slip, fail or leave untradeable dust.
+
+`/status` identifies an armed watch; `/cancel` cancels it under the account lock.
+Restarting the bot or a failed monitoring read cancels an **untriggered** watch,
+because price movements during the interruption are unknown. Fresh approval is
+required. Submitted or uncertain orders are always reconciled, never canceled
+locally or retried as a new buy. Watches consume the one-active-trade slot. A
+zero-fill IOC is terminal and requires a new proposal; entries are never chased.
+The original automatic scanner entry behavior is retained.
+
+The 12 USDT cap including reserved fees, two valid protective OCO quantities and
+exchange minimums remain mandatory. Entry mode does not add exceptions to the
+already displayed manual risk override. A proposal expires after 5 minutes;
+an approved watch has its separate fixed 15-minute lifetime, which is not renewed.

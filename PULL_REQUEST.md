@@ -31,3 +31,14 @@ Zero-fill IOC expiry, safe rejection metadata, partial-fill reconciliation,
 verified remaining OCO coverage and pre-submission approval changes have distinct
 notifications. `/status` retains the latest saved entry result and known order ID
 after closure. No pricing change, automatic buy retry or live execution was added.
+
+Telegram entry redesign: manual now offers Enter now with three typed exit levels,
+a clearly labeled preset requiring no typing, and Wait at my price with four
+levels. Immediate entries freeze an ask-based price ceiling and displayed bounds;
+local 15-minute watches attempt one IOC only when triggered, cancel on observed
+stop breach or interruption, and consume the persistent active slot. `/cancel`
+cancels only untriggered watches; existing order recovery is preserved. A gap
+regression also fixes known-unsent OCO validation failures blocking safe recovery.
+Validation: 242 passed, 3 native Windows skips; lint/format/Bandit/dependency checks
+pass. No live trades/account access. See README and SECURITY_REVIEW.md for polling,
+gap, non-atomic protection and offline-test limitations.
