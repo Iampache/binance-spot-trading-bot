@@ -60,6 +60,41 @@ def fmt(value):
     return format(D(value), "f")
 
 
+def target_style(plan):
+    """Missing style is the historical two-target contract, never a new default."""
+    style = plan.get("exit_style", "two")
+    if style not in ("single", "two"):
+        raise ValueError("Choose Single target or Two targets")
+    return style
+
+
+def target_fields(plan):
+    if target_style(plan) == "single":
+        if "t2" in plan:
+            raise ValueError("Single target requires one take-profit level only")
+        return ("t1",)
+    return "t1", "t2"
+
+
+def target_quantities(qty, step, plan):
+    qty = round_to(qty, step)
+    if target_style(plan) == "single":
+        return (qty,)
+    half = round_to(qty / 2, step)
+    return half, qty - half
+
+
+def target_parts(qty, step, plan):
+    return tuple(zip(target_quantities(qty, step, plan), (plan[k] for k in target_fields(plan))))
+
+
+def select_targets(signal, style):
+    result = {**signal, "exit_style": target_style({"exit_style": style})}
+    if style == "single":
+        result.pop("t2", None)
+    return result
+
+
 def round_to(value, step):
     value, step = D(value), D(step)
     if value < 0 or step <= 0:
@@ -227,6 +262,24 @@ def load_trades():
             for field in ("orders", "oco", "plan", "baseline_base"):
                 if field not in rec:
                     raise ValueError("Incomplete journal")
+            style = target_style(rec["plan"])
+            if "exit_style" in rec["plan"]:
+                if style == "single" and "t2" in rec["plan"]:
+                    raise ValueError("Single-target journal contains a second target")
+                fields = target_fields(rec["plan"])
+                if len(rec["oco"]) > len(fields):
+                    raise ValueError("Too many protective lists for approved target style")
+                bounds = rec.get("approved_bounds")
+                if bounds and (
+                    target_style(bounds) != style
+                    or any(D(bounds[k]) != D(rec["plan"][k]) for k in ("stop", *fields))
+                ):
+                    raise ValueError("Target structure differs from approved bounds")
+                for item, key in zip(rec["oco"], fields):
+                    if D(item["tp"]) != D(rec["plan"][key]) or D(item["stop"]) != D(
+                        rec["plan"]["stop"]
+                    ):
+                        raise ValueError("Protective list differs from approved levels")
             if D(rec["baseline_base"]) < 0:
                 raise ValueError("Negative baseline balance")
             for event in rec["orders"]:
@@ -483,19 +536,20 @@ def validate_price(price, f, side):
 
 def preflight(plan, f, *, open_orders=None):
     f["symbol"] = plan["symbol"]
-    for key in ("stop", "t1", "t2"):
+    fields = target_fields(plan)
+    for key in ("stop", *fields):
         validate_price(plan[key], f, "SELL")
     price = D(plan["price"])
     validate_price(round_to(price, f["tick"]), f, "BUY")
-    if not D(plan["stop"]) < price < D(plan["t1"]) < D(plan["t2"]):
+    levels = [D(plan["stop"]), price, *(D(plan[k]) for k in fields)]
+    if any(a >= b for a, b in zip(levels, levels[1:])):
         raise ValueError("Rounded protective levels invalid")
     qty = D(plan["qty"])
     entry_buffer = plan.get("manual_override") is not True
     validate_qty(qty, f, price, market=True, entry=entry_buffer)
-    # Reserve worst-side base commission before sizing the two protective lists.
+    # Reserve worst-side base commission before sizing the selected exit lists.
     net = round_to(qty * (1 - D(plan["fee_rate"])), f["step"])
-    half = round_to(net / 2, f["step"])
-    for part, target in ((half, plan["t1"]), (net - half, plan["t2"])):
+    for part, target in target_parts(net, f["step"], plan):
         validate_qty(part, f, plan["stop"], entry=entry_buffer)
         validate_qty(part, f, target, entry=entry_buffer)
     cap = D(settings.read()["max_position_usdt"])
@@ -537,20 +591,20 @@ def preflight(plan, f, *, open_orders=None):
         raise ValueError("Unsupported exchange filter; skip trade")
     for index, (name, field, needed) in enumerate(
         [
-            ("MAX_NUM_ORDERS", "maxNumOrders", 4),
-            ("MAX_NUM_ALGO_ORDERS", "maxNumAlgoOrders", 2),
-            ("MAX_NUM_ORDER_LISTS", "maxNumOrderLists", 2),
+            ("MAX_NUM_ORDERS", "maxNumOrders", 2 * len(fields)),
+            ("MAX_NUM_ALGO_ORDERS", "maxNumAlgoOrders", len(fields)),
+            ("MAX_NUM_ORDER_LISTS", "maxNumOrderLists", len(fields)),
         ]
     ):
         rule = f["raw"].get(name)
         if rule and int(rule[field]) and int(rule[field]) < needed + symbol_usage[index]:
-            raise ValueError("Insufficient symbol capacity for two protective OCOs")
+            raise ValueError(f"Insufficient symbol capacity for {len(fields)} protective OCO(s)")
     exchange_info = get_client().get_exchange_info()
     for rule in exchange_info.get("exchangeFilters", []):
         limits = {
-            "EXCHANGE_MAX_NUM_ORDERS": ("maxNumOrders", 4),
-            "EXCHANGE_MAX_NUM_ALGO_ORDERS": ("maxNumAlgoOrders", 2),
-            "EXCHANGE_MAX_NUM_ORDER_LISTS": ("maxNumOrderLists", 2),
+            "EXCHANGE_MAX_NUM_ORDERS": ("maxNumOrders", 2 * len(fields)),
+            "EXCHANGE_MAX_NUM_ALGO_ORDERS": ("maxNumAlgoOrders", len(fields)),
+            "EXCHANGE_MAX_NUM_ORDER_LISTS": ("maxNumOrderLists", len(fields)),
         }
         if rule["filterType"] not in limits:
             raise ValueError("Unsupported exchange-wide filter")
@@ -913,11 +967,14 @@ def submit_protection(rec, qty, t1, t2, stop, f):
     require_trade_permission()
     initialize()
     qty = round_to(qty, f["step"])
-    half = round_to(qty / 2, f["step"])
-    for part, tp in ((half, t1), (qty - half, t2)):
+    levels = {"exit_style": target_style(rec["plan"]), "t1": t1}
+    if target_style(rec["plan"]) == "two":
+        levels["t2"] = t2
+    parts = target_parts(qty, f["step"], levels)
+    for part, tp in parts:
         validate_qty(part, f, stop)
         validate_qty(part, f, tp)
-    for part, tp in ((half, t1), (qty - half, t2)):
+    for part, tp in parts:
         top, bottom = (
             intent(rec, "SELL", part, "target"),
             intent(rec, "SELL", part, "stop"),
@@ -1481,7 +1538,11 @@ def trade_result_text(rec):
             None,
         )
         if order["purpose"] == "target":
-            name = f"Take Profit-{linked}" if linked is not None else "Take profit"
+            name = (
+                f"Take Profit-{linked}"
+                if linked is not None and target_style(rec["plan"]) == "two"
+                else "Take profit"
+            )
             event = f"{name} {phrase}."
         elif order["purpose"] == "stop":
             event = f"Stop loss {phrase}."

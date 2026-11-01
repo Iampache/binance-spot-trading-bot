@@ -206,6 +206,7 @@ def test_manual_warning_card_uses_override_label_and_collects_levels_without_buy
     )
     card = next(iter(tg.checks))
     tg.handle_check_callback({"id": "cb"}, "C3", card)
+    tg.handle_check_callback({"id": "cb"}, "CT2", card)
     assert any("Manual mode retains its explicit risk override" in text for text, _ in messages)
     low_volume(sim)
     tg.handle_manual("100 99.5 100.2 101")

@@ -106,13 +106,14 @@ HELP = (
     "After /check:\n"
     "Review live plan, Watch 1/3/15 min, Trading options, Details or Ignore\n"
     "Setup watches never buy; only a fresh validated proposal notifies you.\n"
-    "Manual — type ENTRY STOP TP1 TP2 (explicit risk override)\n"
-    "Assisted — bot suggests entry/SL; type TP1 TP2\n"
+    "Choose targets first: 1 = Single target (one OCO), 2 = Two targets (two OCOs).\n"
+    "Manual — type ENTRY STOP TP for Single, or ENTRY STOP TP1 TP2 for Two (explicit risk override)\n"
+    "Assisted — bot suggests entry/SL; type one TP or TP1 TP2 for your selection\n"
     "Auto Setup — bot calculates all levels; you still approve\n"
     "Algorithm modes enforce normal risk limits and may skip unsuitable setups.\n"
     "BTC weakness is advisory; the coin's own trend/setup checks still apply.\n"
     "STOP (or EXIT) means the stop-loss trigger, not a guaranteed execution price.\n\n"
-    "Proposal buttons: Details (full explanation), Approve or Reject. "
+    "Proposal buttons: Details (full explanation), Change targets, Approve or Reject. "
     "Buying always needs approval; configured investment/active-trade limits apply (/setup)."
 )
 
@@ -223,7 +224,11 @@ def proposal_text(sig, p, note):
     fee = em.D(p["fee_rate"])
     # Conservative scenario: sell only the fee-reserved two exit quantities,
     # reserve full sell commission, subtract the entire approved entry cost.
-    proceeds = (em.D(p["half"]) * em.D(p["t1"]) + em.D(p["rest"]) * em.D(p["t2"])) * (1 - fee)
+    single = em.target_style(p) == "single"
+    proceeds = sum(
+        (em.D(p[part]) * em.D(p[key]) for part, key in zip(("half", "rest"), em.target_fields(p))),
+        em.D(0),
+    ) * (1 - fee)
     profit = proceeds - em.D(p["cost"])
     mode = p.get("entry_mode", "legacy")
     if p.get("algorithmic"):
@@ -241,18 +246,28 @@ def proposal_text(sig, p, note):
         "TRADE PROPOSAL",
         f"🔵 Ticker: {p['symbol']}",
         f"Type: {kind} | {timing}",
+        f"Targets: {'Single target — one OCO' if single else 'Two targets — two OCOs'}",
         "🟡 Status: Awaiting approval",
         "",
         f"Entry (maximum buy price): {sc.fmt(p['price'])}",
         f"SL: {sc.fmt(p['stop'])} (-{p['risk_pct']:.1f}%)",
-        f"TP1: {sc.fmt(p['t1'])} — half",
-        f"TP2: {sc.fmt(p['t2'])} — remainder",
+        *(
+            [
+                f"Take profit: {sc.fmt(p['t1'])} — full tradable position",
+                f"Estimated protected quantity: {em.fmt(p['half'])}",
+            ]
+            if single
+            else [
+                f"TP1: {sc.fmt(p['t1'])} — {em.fmt(p['half'])}",
+                f"TP2: {sc.fmt(p['t2'])} — {em.fmt(p['rest'])}",
+            ]
+        ),
         f"Size: {em.fmt(p['qty'])} | ~USD {p['cost']:.2f} incl. fee reserve",
         "",
-        f"Est. profit if both targets fill: USD {profit:+.2f}",
+        f"Est. profit if {'the target fills' if single else 'both targets fill'}: USD {profit:+.2f}",
         f"Est. loss at initial stop: USD {p['loss']:.2f}",
         "Estimates include reserved fees; fills/slippage can change results.",
-        "After TP1, the original stop stays; no automatic breakeven.",
+        *([] if single else ["After TP1, the original stop stays; no automatic breakeven."]),
     ]
     if mode == "watch":
         lines.append("Watch cancels on observed stop breach or interruption; gaps remain possible.")
@@ -275,6 +290,7 @@ def proposal_text(sig, p, note):
 
 
 def proposal_details_text(sig, p, note):
+    single = em.target_style(p) == "single"
     lines = [
         "TRADE PROPOSAL",
         f"🔵 {p['symbol']}  |  {sig['setup']}",
@@ -283,11 +299,26 @@ def proposal_details_text(sig, p, note):
         f"Estimated stop loss: ~${p['loss']:.2f} including reserved fees; slippage can increase loss.",
         f"Entry ~ {sc.fmt(p['price'])}",
         f"Stop: {sc.fmt(p['stop'])} (-{p['risk_pct']:.1f}%)",
-        f"TP1: {sc.fmt(p['t1'])} (sells half)",
-        f"TP2: {sc.fmt(p['t2'])} (sells rest)",
+        *(
+            [
+                f"Single target: {sc.fmt(p['t1'])} — one OCO for the full tradable position",
+                f"Estimated protected quantity: {em.fmt(p['half'])}; actual net fill/fees determine protection",
+            ]
+            if single
+            else [
+                f"TP1: {sc.fmt(p['t1'])} (estimated quantity {em.fmt(p['half'])})",
+                f"TP2: {sc.fmt(p['t2'])} (estimated quantity {em.fmt(p['rest'])})",
+            ]
+        ),
         f"Size: {em.fmt(p['qty'])} (~${p['cost']:.2f} of ${p['balance']:.2f} USDT)",
-        f"Gross TP1 / TP2 gains before fees: about +${p['gain1']:.2f} / +${p['gain2']:.2f}",
-        "After TP1 the ORIGINAL OCO2 stop remains active; breakeven is NOT automatic.",
+        *(
+            [f"Gross take-profit gain before fees: about +${p['gain1']:.2f}"]
+            if single
+            else [
+                f"Gross TP1 / TP2 gains before fees: about +${p['gain1']:.2f} / +${p['gain2']:.2f}",
+                "After TP1 the ORIGINAL OCO2 stop remains active; breakeven is NOT automatic.",
+            ]
+        ),
     ]
     mode = p.get("entry_mode", "legacy")
     if mode == "now":
@@ -351,6 +382,7 @@ def send_proposal(sig, plan, note, *, guard=None):
                 {"text": "Reject", "callback_data": f"R:{pid}"},
             ],
             [{"text": "Details", "callback_data": f"D:{pid}"}],
+            [{"text": "Change targets", "callback_data": f"E:{pid}"}],
         ]
     }
     r = say(text, reply_markup=json.dumps(kb))
@@ -379,6 +411,7 @@ def send_proposal(sig, plan, note, *, guard=None):
             mid=r["result"]["message_id"],
             text=text,
             details=details,
+            generation=generation,
         )
         last_preview.update(text=text, saved_at=time.time(), kind="proposal")
     return True
@@ -730,6 +763,8 @@ def send_check_card(res, title="CHECK", generation=None, *, problem=None):
 
 
 def show_entry_problem(res, error, *, cid=None, item=None):
+    if res.get("sig") and "exit_style" in res["sig"]:
+        res = {**res, "exit_style": em.target_style(res["sig"])}
     problem = readiness.problem(error)
     generation = item.get("generation", proposal_generation) if item else proposal_generation
     if cid:
@@ -743,7 +778,9 @@ def show_entry_problem(res, error, *, cid=None, item=None):
 
 def mode_precheck(res, mode=None, *, cid=None, item=None, signal=None):
     try:
-        result = readiness.check(res["symbol"], mode=mode, signal=signal)
+        result = readiness.check(
+            res["symbol"], mode=mode, signal=signal, exit_style=em.target_style(res)
+        )
         res["readiness_checks"] = result["checks"]
         return result
     except Exception as error:
@@ -847,11 +884,13 @@ def watch_setup(wid, watch):
                     )
                     return
                 res = check_ticker(watch["symbol"])
+                res["exit_style"] = watch["exit_style"]
                 watch["res"] = res
                 if not setup_watch_current(wid, watch):
                     break
                 last_problem = None
                 if res.get("sig") and res["status"] == "SAFE":
+                    res["sig"] = em.select_targets(res["sig"], watch["exit_style"])
                     readiness.check(watch["symbol"], mode="normal", signal=res["sig"])
                     plan = ta.build_plan(res["sig"])
                     if not setup_watch_current(wid, watch):
@@ -918,6 +957,7 @@ def start_setup_watch(cid, item, minutes):
     )
     watch = dict(
         symbol=symbol,
+        exit_style=em.target_style(item["res"]),
         res=item["res"],
         mid=item["mid"],
         text=text,
@@ -1056,21 +1096,16 @@ def handle_check_callback(cb, action, cid):
         if not res["sig"] or res["status"] != "SAFE":
             ack("No valid setup right now.")
             return
-        ack("Building the plan...")
-        if mode_precheck(res, "normal", cid=cid, item=item, signal=res["sig"]) is None:
-            return
-        try:
-            plan = ta.build_plan(res["sig"])
-        except ValueError as e:
-            show_entry_problem(res, e, cid=cid, item=item)
-            return
-        except Exception as e:
-            show_entry_problem(res, e, cid=cid, item=item)
-            return
-        checks.pop(cid, None)
-        edit(item, "Plan sent below. Tap Approve or Reject.")
-        send_proposal(res["sig"], plan, res["note"])
+        ack("Choose Single target or Two targets.")
+        show_target_options(res, cid=cid, item=item, route="review")
+    elif action in ("CT1", "CT2"):
+        ack("Checking the selected target structure...")
+        choose_target_style(cid, item, "single" if action == "CT1" else "two")
     elif action in ("CN", "CW", "CQ"):
+        if "exit_style" not in item or item.get("stage") != "modes":
+            ack("Choose your targets first.")
+            show_target_options(res, cid=cid, item=item)
+            return
         ack("Checking entry readiness before starting this mode...")
         if mode_precheck(res, "manual" if action == "CN" else "normal", cid=cid, item=item) is None:
             return
@@ -1087,14 +1122,19 @@ def handle_check_callback(cb, action, cid):
             except Exception as error:
                 show_entry_problem(res, error, cid=cid, item=item)
                 return
+            suggestion = em.select_targets(suggestion, item["exit_style"])
             suggestion["algorithm_mode"] = "assisted"
             state.update(step="algorithm_targets", signal=suggestion, menu_id=cid, t=time.time())
             say(
                 f"Assisted setup | {res['symbol'][:-4]}/USDT\n"
                 f"Indicative entry cap: {sc.fmt(suggestion['entry'])}\n"
                 f"Stop loss: {sc.fmt(suggestion['stop'])}\n\n"
-                "Send TWO profit-target prices: TP1 TP2.\n"
-                "Targets must satisfy risk/reward and resistance checks. "
+                + (
+                    "Send ONE take-profit price: TP.\n"
+                    if item["exit_style"] == "single"
+                    else "Send TWO profit-target prices: TP1 TP2.\n"
+                )
+                + "Targets must satisfy risk/reward and resistance checks. "
                 "The final entry quote may update before you approve. /cancel to stop."
                 + (
                     "\n\n" + suggestion["market_warning"]
@@ -1108,10 +1148,11 @@ def handle_check_callback(cb, action, cid):
                 symbol=res["symbol"],
                 status=res["status"],
                 entry_mode="watch",
+                exit_style=item["exit_style"],
                 menu_id=cid,
                 t=time.time(),
             )
-            say(manual_levels_prompt(res, "watch"))
+            say(manual_levels_prompt(res, "watch", exit_style=item["exit_style"]))
     elif action == "C3":
         ack("Choose a trading mode.")
         edit(
@@ -1121,11 +1162,116 @@ def handle_check_callback(cb, action, cid):
         show_trading_options(res, cid=cid, item=item)
 
 
-def show_trading_options(res, *, cid=None, item=None, generation=None):
-    if generation is None:
-        generation = proposal_generation
+def show_target_options(res, *, cid=None, item=None, route="options"):
+    generation = item.get("generation", proposal_generation) if item else proposal_generation
     if generation != proposal_generation:
         return None
+    try:
+        em.ensure_context()
+        revision = settings.read()["revision"]
+    except Exception as error:
+        show_entry_problem(res, error, cid=cid, item=item)
+        return None
+    cid = cid or uuid.uuid4().hex
+    if item:
+        edit(item, "Choose your target structure below. No buy has been approved.")
+    text = (
+        f"Choose profit targets | {res['symbol'][:-4]}/USDT\n\n"
+        "1 — Single target: one stop loss and one take profit for the full tradable position, protected by one OCO.\n"
+        "2 — Two targets: split the position between TP1 and TP2, protected by two OCOs at the same stop price.\n\n"
+        "Both use one trade slot. Funding and fees are checked for your selection.\n"
+        "Tap a button or reply 1 / 2. Final approval is still required. /cancel to stop."
+    )
+    result = say(
+        text,
+        reply_markup=json.dumps(
+            {
+                "inline_keyboard": [
+                    [{"text": "1 — Single target", "callback_data": f"CT1:{cid}"}],
+                    [{"text": "2 — Two targets", "callback_data": f"CT2:{cid}"}],
+                    [{"text": "Cancel", "callback_data": f"CX:{cid}"}],
+                ]
+            }
+        ),
+    )
+    if not result.get("ok"):
+        checks.pop(cid, None)
+        return None
+    view = dict(
+        res=res,
+        created=item["created"] if item and "created" in item else time.time(),
+        mid=result["result"]["message_id"],
+        text=text,
+        stage="targets",
+        route=route,
+        generation=generation,
+        context=dict(em.CONTEXT),
+        revision=revision,
+    )
+    with pend_lock:
+        if not target_selection_current(view):
+            edit(view, "CANCELLED. Open a fresh check.")
+            return None
+        checks[cid] = view
+    state.clear()
+    state.update(step="target_style", menu_id=cid, t=time.time())
+    return cid
+
+
+def target_selection_current(item):
+    """Bound selections cannot regain authority after slow reads/delivery."""
+    try:
+        if (
+            em.STOP.is_set()
+            or item.get("generation", proposal_generation) != proposal_generation
+            or time.time() - item["created"] >= CHECK_TTL
+            or item.get("context", em.CONTEXT) != em.CONTEXT
+        ):
+            return False
+        current = settings.read()["revision"]
+        return item.get("revision", current) == current
+    except Exception:
+        return False
+
+
+def choose_target_style(cid, item, style):
+    if checks.get(cid) is not item or item.get("stage") != "targets":
+        return
+    try:
+        if not target_selection_current(item):
+            checks.pop(cid, None)
+            edit(item, "EXPIRED. Settings or account changed; request a fresh check.")
+            state.clear()
+            return
+        item.update(stage="selected", exit_style=style)
+        res = {**item["res"], "exit_style": style}
+        item["res"] = res
+        state.clear()
+        edit(
+            item, "Targets selected: " + ("Single target." if style == "single" else "Two targets.")
+        )
+        if item["route"] == "review":
+            signal = em.select_targets(res["sig"], style)
+            if mode_precheck(res, "normal", cid=cid, item=item, signal=signal) is None:
+                return
+            plan = ta.build_plan(signal)
+            checks.pop(cid, None)
+            send_proposal(
+                signal, plan, res.get("note", ""), guard=lambda: target_selection_current(item)
+            )
+        else:
+            show_trading_options(res, cid=cid, item=item)
+    except Exception as error:
+        show_entry_problem(item["res"], error, cid=cid, item=item)
+
+
+def show_trading_options(res, *, cid=None, item=None, generation=None):
+    if generation is None:
+        generation = item.get("generation", proposal_generation) if item else proposal_generation
+    if generation != proposal_generation:
+        return None
+    if item is None or "exit_style" not in item:
+        return show_target_options(res, cid=cid, item=item)
     if mode_precheck(res, cid=cid, item=item) is None:
         return None
     limits = settings.read()
@@ -1137,14 +1283,16 @@ def show_trading_options(res, *, cid=None, item=None, generation=None):
         symbol=res["symbol"],
         status=res["status"],
         entry_mode="watch",
+        exit_style=item["exit_style"],
         menu_id=cid,
         t=time.time(),
     )
     text = (
         f"Trading options | {res['symbol'][:-4]}/USDT\n"
         f"Reference price: {sc.fmt(res['price'])}\n\n"
-        "Manual — you choose Entry, SL, TP1 and TP2.\n"
-        "Assisted — the bot suggests entry/SL; you choose TP1/TP2.\n"
+        f"Targets: {'Single target' if item['exit_style'] == 'single' else 'Two targets'}.\n"
+        "Manual — you choose entry, stop and the selected profit target(s).\n"
+        "Assisted — the bot suggests entry/SL; you choose the profit target(s).\n"
         "Auto Setup — the bot calculates all levels for your approval.\n\n"
         "Algorithm modes enforce normal liquidity, 1% risk and 3 USDT daily-loss limits. "
         "BTC trend is advisory; a weak/downward trend shows a warning. "
@@ -1177,9 +1325,9 @@ def show_trading_options(res, *, cid=None, item=None, generation=None):
     )
 
     if result and result.get("ok"):
-        view = {**item, "mid": result["result"]["message_id"], "text": text}
+        view = {**item, "stage": "modes", "mid": result["result"]["message_id"], "text": text}
         with pend_lock:
-            if generation != proposal_generation:
+            if not target_selection_current(view):
                 if state.get("menu_id") == cid:
                     state.clear()
                 edit(view, "CANCELLED. This selection can no longer be used.")
@@ -1193,6 +1341,7 @@ def show_trading_options(res, *, cid=None, item=None, generation=None):
 
 
 def prepare_algorithm_proposal(symbol, entry=None, *, source=None, cid=None, item=None):
+    generation = item.get("generation", proposal_generation) if item else proposal_generation
     res = source or dict(
         symbol=symbol,
         price=entry or 0,
@@ -1204,8 +1353,9 @@ def prepare_algorithm_proposal(symbol, entry=None, *, source=None, cid=None, ite
         note="",
     )
     try:
-        readiness.check(symbol, mode="normal")
-        sig = algo.propose(symbol, entry=entry)
+        style = em.target_style(res)
+        readiness.check(symbol, mode="normal", exit_style=style)
+        sig = em.select_targets(algo.propose(symbol, entry=entry), style)
         res.update(sig=sig, status="SAFE", price=sig["entry"])
         readiness.check(symbol, mode="normal", signal=sig)
         plan = ta.build_plan(sig)
@@ -1216,27 +1366,40 @@ def prepare_algorithm_proposal(symbol, entry=None, *, source=None, cid=None, ite
         show_entry_problem(res, error, cid=cid, item=item)
         return False
     return send_proposal(
-        sig, plan, "Algorithm-calculated levels. Review the chart and Details before approving."
+        sig,
+        plan,
+        "Algorithm-calculated levels. Review the chart and Details before approving.",
+        guard=lambda: (
+            generation == proposal_generation and (item is None or target_selection_current(item))
+        ),
     )
 
 
 def handle_algorithm_targets(text):
+    generation = proposal_generation
+    suggestion = dict(state["signal"])
+    single = em.target_style(suggestion) == "single"
     try:
         values = text.replace(",", " ").split()
-        if len(values) != 2:
-            raise ValueError("Two prices required")
-        t1, t2 = (em.D(value) for value in values)
-        suggestion = dict(state["signal"])
-        if not em.D(suggestion["entry"]) < t1 < t2:
-            raise ValueError("Entry < TP1 < TP2 required")
+        if len(values) != (1 if single else 2):
+            raise ValueError("Incorrect target count")
+        targets = [em.D(value) for value in values]
+        ordered = [em.D(suggestion["entry"]), *targets]
+        if any(a >= b for a, b in zip(ordered, ordered[1:])):
+            raise ValueError("Targets must be above entry and increasing")
     except ValueError:
-        say("Send TWO prices above entry, with TP1 below TP2. /cancel to stop.")
+        say(
+            "Send ONE take-profit price above entry. /cancel to stop."
+            if single
+            else "Send TWO prices above entry, with TP1 below TP2. /cancel to stop."
+        )
         return
-    suggestion.update(t1=t1, t2=t2)
+    suggestion.update(zip(em.target_fields(suggestion), targets))
     suggestion["analysis_summary"] += (
         " User-selected targets; normal algorithm validation still applies."
     )
     menu_id = state.get("menu_id")
+    menu = checks.get(menu_id)
     state.clear()
     try:
         readiness.check(suggestion["symbol"], mode="normal", signal=suggestion)
@@ -1272,22 +1435,35 @@ def handle_algorithm_targets(text):
         )
         return
     if send_proposal(
-        suggestion, plan, "Bot-calculated entry/stop; your profit targets. Review before approval."
+        suggestion,
+        plan,
+        "Bot-calculated entry/stop; your profit targets. Review before approval.",
+        guard=lambda: (
+            generation == proposal_generation and (menu is None or target_selection_current(menu))
+        ),
     ):
         finish_mode_menu(menu_id)
 
 
-def manual_levels_prompt(res, mode):
+def manual_levels_prompt(res, mode, *, exit_style="two"):
     price = em.D(res["price"])
     stops = [price * em.D(multiplier) for multiplier in (".97", "1.04", "1.07")]
+    single = exit_style == "single"
+    if single:
+        stops = stops[:2]
     watch = mode == "watch"
     values = [price, *stops] if watch else stops
     return (
         f"{'Manual prices' if watch else 'Manual — current price'} | {res['symbol'][:-4]}/USDT\n\n"
-        f"Send {'4' if watch else '3'} prices in ONE message:\n"
-        + ("ENTRY STOP TP1 TP2\n" if watch else "STOP TP1 TP2\n")
+        f"Send {len(values)} prices in ONE message:\n"
+        + (("ENTRY " if watch else "") + ("STOP TP\n" if single else "STOP TP1 TP2\n"))
         + ("ENTRY = your maximum buy price\n" if watch else "")
-        + "STOP = stop-loss trigger price\nTP1 / TP2 = first / second profit targets\n\n"
+        + "STOP = stop-loss trigger price\n"
+        + (
+            "TP = take profit for the full tradable position\n\n"
+            if single
+            else "TP1 / TP2 = first / second profit targets\n\n"
+        )
         + "Example format only: "
         + " ".join(sc.fmt(value) for value in values)
         + "\n\n"
@@ -1301,8 +1477,11 @@ def manual_levels_prompt(res, mode):
 
 
 def handle_manual(text):
+    generation = proposal_generation
     mode = state.get("entry_mode", "watch")
-    count = 3 if mode == "now" else 4
+    style = em.target_style(state)
+    single = style == "single"
+    count = (2 if mode == "now" else 3) + (0 if single else 1)
     try:
         nums = [float(x) for x in text.replace(",", " ").split()]
         if len(nums) != count or not all(math.isfinite(x) for x in nums):
@@ -1310,7 +1489,10 @@ def handle_manual(text):
     except ValueError:
         say(
             "Please send "
-            + ("3 numbers: STOP TP1 TP2" if count == 3 else "4 numbers: ENTRY STOP TP1 TP2")
+            + str(count)
+            + " numbers: "
+            + ("ENTRY " if mode != "now" else "")
+            + ("STOP TP" if single else "STOP TP1 TP2")
             + " (or /cancel)."
         )
         return
@@ -1320,19 +1502,23 @@ def handle_manual(text):
         except Exception as error:
             say(f"Cannot read entry quote: {safe(error)}")
             return
-        entry, stop, t1, t2 = float(ask), *nums
-    else:
-        entry, stop, t1, t2 = nums
-    if not (0 < stop < entry < t1 < t2):
-        say("The order must be STOP < ENTRY < TP1 < TP2. Try again or /cancel.")
+        nums = [float(ask), *nums]
+    entry, stop, *targets = nums
+    if not (0 < stop < entry < targets[0]) or (not single and targets[0] >= targets[1]):
+        say(
+            "The order must be STOP < ENTRY < TP. Try again or /cancel."
+            if single
+            else "The order must be STOP < ENTRY < TP1 < TP2. Try again or /cancel."
+        )
         return
     symbol, status = state["symbol"], state.get("status", "?")
     sig = dict(
         symbol=symbol,
         entry=entry,
         stop=stop,
-        t1=t1,
-        t2=t2,
+        t1=targets[0],
+        **({"t2": targets[1]} if not single else {}),
+        exit_style=style,
         setup="MANUAL entry (your levels)",
         entry_mode=mode,
         manual_override=True,
@@ -1340,6 +1526,7 @@ def handle_manual(text):
         chg24=0,
     )
     menu_id = state.get("menu_id")
+    menu = checks.get(menu_id)
     state.clear()
     try:
         readiness.check(symbol, mode="manual", signal=sig)
@@ -1364,6 +1551,9 @@ def handle_manual(text):
         sig,
         plan,
         f"MANUAL entry. Scanner status was: {status}. The levels are yours, not the scanner's.",
+        guard=lambda: (
+            generation == proposal_generation and (menu is None or target_selection_current(menu))
+        ),
     ):
         finish_mode_menu(menu_id)
 
@@ -1442,6 +1632,17 @@ def handle_callback(cb):
             for start in range(0, len(text), 3500):
                 say(text[start : start + 3500])
         return
+    if action == "E":
+        with pend_lock:
+            original = pending.get(pid)
+        if original and cb.get("message", {}).get("message_id") != original["mid"]:
+            clear_callback_keyboard(cb)
+            tg(
+                "answerCallbackQuery",
+                callback_query_id=cb["id"],
+                text="Use the original proposal to change its targets.",
+            )
+            return
     with pend_lock:
         item = pending.pop(pid, None)
     if not item:
@@ -1459,6 +1660,27 @@ def handle_callback(cb):
     if action == "R":
         tg("answerCallbackQuery", callback_query_id=cb["id"], text="Rejected.")
         edit(item, "REJECTED. No order placed.")
+        return
+    if action == "E":
+        tg(
+            "answerCallbackQuery",
+            callback_query_id=cb["id"],
+            text="Choose targets, then review a new proposal.",
+        )
+        edit(
+            item, "REPLACED. Target selection requires a new proposal and approval. No buy placed."
+        )
+        res = dict(
+            symbol=item["plan"]["symbol"],
+            price=item["plan"]["price"],
+            chg=0,
+            qv=0,
+            sig=item["sig"],
+            status="SAFE",
+            reasons=[],
+            note="",
+        )
+        show_target_options(res, item=item)
         return
     if action != "A":
         return
@@ -1666,6 +1888,16 @@ def handle_message(msg):
             say("Which coin? Send just the ticker, for example ZRO. USDT is added automatically.")
     elif state.get("step") == "position_number" and text:
         handle_position_number(text)
+    elif state.get("step") == "target_style" and text:
+        cid = state.get("menu_id")
+        item = checks.get(cid)
+        if not item or item.get("stage") != "targets":
+            state.clear()
+            say("Target selection expired. Use /check again.")
+        elif text.strip() not in ("1", "2"):
+            say("Reply 1 for Single target or 2 for Two targets, or /cancel.")
+        else:
+            choose_target_style(cid, item, "single" if text.strip() == "1" else "two")
     elif state.get("step") == "setup_value" and text:
         handle_setup_value(text)
     elif state.get("step") == "ticker" and text:

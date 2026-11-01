@@ -61,6 +61,7 @@ def test_changed_quote_can_make_new_plan_valid_without_bypassing_gates(sim, monk
     assert "Reference price" in messages[-1][0] and "SAFE TO ENTER" not in messages[-1][0]
     cid = next(iter(tg.checks))
     tg.handle_check_callback({"id": "cb"}, "C1", cid)
+    tg.handle_check_callback({"id": "cb"}, "CT2", cid)
     assert len(tg.pending) == 1 and not sim.writes
     p = next(iter(tg.pending.values()))["plan"]
     assert p["price"] == D("6.995") and p["rr"] >= D("1.5")

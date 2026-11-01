@@ -306,6 +306,8 @@ def messages(monkeypatch):
     monkeypatch.setattr(tg, "edit", lambda *args: None)
     tg.checks["test"] = {
         "created": time.time(),
+        "stage": "modes",
+        "exit_style": "two",
         "res": {"symbol": "FOOUSDT", "price": 100.9, "status": "WARNING"},
     }
     return out

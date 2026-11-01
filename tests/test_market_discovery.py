@@ -250,6 +250,8 @@ def test_discovery_opens_all_three_modes_without_assuming_a_chart_signal(sim, ui
     vid, item = result_view()
     tg.handle_callback(click("VM", vid, item, 0))
     cid, menu = next(iter(tg.checks.items()))
+    tg.handle_callback(click("CT2", cid, menu))
+    menu = tg.checks[cid]
     params = [p for method, p in ui if method == "sendMessage"][-1]
     actions = [
         b["callback_data"]
@@ -269,6 +271,7 @@ def test_read_only_discovery_during_protected_trade_then_modes_enforce_slot(sim,
     vid, item = result_view()
     tg.handle_callback(click("VM", vid, item, 0))
     cid, menu = next(iter(tg.checks.items()))
+    tg.handle_callback(click("CT2", cid, menu))
     tg.handle_callback(click("CQ", cid, menu))
     assert any("trade already in progress" in p.get("text", "") for _, p in ui)
     assert not tg.pending and len(sim.writes) == count

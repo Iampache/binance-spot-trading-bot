@@ -1,9 +1,13 @@
 # Offline validation results
 
-Latest v1.10.0 result: **712 passed, 3 native Windows skips**, three upstream
+Latest v1.11.0 result: **789 passed, 3 native Windows skips**, three upstream
 deprecation warnings. Ruff lint/format, Bandit, dependency and whitespace checks
 pass. The sections below retain earlier run history; the latest regression
 details are recorded at the end.
+
+V1.11.0 adds 77 Single/Two-target regressions. Existing UI fixtures now select Two
+targets before their original mode assertions; numerical, ownership and execution
+checks remain. The core suite passed unchanged before introducing the new menus.
 
 V1.10.0 adds 75 cases for entry readiness, continuous quiet setup watches,
 session-only chat limits, operator-only persistence and bounded startup choices.
@@ -825,3 +829,35 @@ not verify native Windows console behavior or live execution/delivery reliabilit
 The interactive prompt pauses local monitoring until answered; existing exchange
 orders remain in place. No multi-user administrator or Helpdesk service is tested
 or implemented.
+
+## Single and Two-target plans (v1.11.0)
+
+Seventy-seven new cases exercise the selected structure through real application
+code and the pinned SDK's offline transport:
+
+- `tests/test_single_target.py` (47): one OCO for all tradable net inventory;
+  quote/base buy commissions; actual full TP and stop fills; cash-flow versus
+  realized P&L with retained dust; pair-specific minimum funds and common lot
+  lattices; symbol/exchange list headroom; frozen approval allocations; malformed
+  metadata; legacy Two-target and Single-target restart; durable confirmed exit;
+  partial buys and partial maker-target recovery; accepted/rejected/uncertain OCO
+  outcomes; Single-target entry-watch trigger; read-only views; fourteen crashes
+  at durable journal boundaries without duplicate buys/lists or unrelated sales.
+- `tests/test_target_choice.py` (30): named buttons and numeric replies; one/two
+  Manual and Assisted forms; Auto Setup's original first target; single-exit
+  funding before modes; fresh scanner review; owner/chat/message/context/settings
+  and expiry binding; target-change invalidation of old approval; unavailable
+  forged mode shortcuts; selected setup observations; cancellation/settings races
+  during both analysis and delivery; unchanged Two-target background default.
+
+Existing UI tests explicitly select Two targets before checking their prior mode
+behavior. Their numeric risk, price/tick/RR, ownership, no-buy-before-approval,
+keyboard expiry/cancellation and execution assertions remain. The unchanged
+712-test suite passed after the core changes before UI expectations were updated.
+
+Final local suite: **789 passed, 3 native Windows skips**, three upstream
+deprecation warnings. Ruff lint/format, Bandit, `pip check` and whitespace checks
+pass. Native Windows results are tracked separately in the PR's CI matrix. Tests
+forbid sockets/HTTP and use synthetic transport: no production credentials,
+Binance trades or real Telegram service were used. This does not establish live
+delivery/execution performance, a guaranteed loss cap or a profitable strategy.

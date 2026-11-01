@@ -671,6 +671,7 @@ def test_manual_check_and_fifteen_minute_recheck_are_preserved(sim, monkeypatch)
     tg.handle_message({**message, "text": "/check FOO/USDT"})
     cid = next(iter(tg.checks))
     tg.handle_check_callback({"id": "cb"}, "C3", cid)
+    tg.handle_check_callback({"id": "cb"}, "CT2", cid)
     tg.handle_message({**message, "text": "100 97 104.5 107.5"})
     assert tg.pending and not sim.writes
     assert any("MANUAL" in text for text in replies)

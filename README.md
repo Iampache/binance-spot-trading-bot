@@ -2,6 +2,47 @@
 
 Binance Spot trading assistant with Telegram control. Concept & developed by Fazil.
 
+## Choose Single target or Two targets (v1.11.0)
+
+Before entering a trading mode, choose the profit-target structure using named
+buttons or reply to the latest target menu:
+
+| Choice | Manual prices | Protective orders |
+| --- | --- | --- |
+| **1 — Single target** | `ENTRY STOP TP` | One OCO for all exchange-tradable bot inventory |
+| **2 — Two targets** | `ENTRY STOP TP1 TP2` | Two OCOs splitting the position, at the same SL price |
+
+Both choices occupy **one trade slot**. Assisted asks for one TP or two targets
+according to this choice. Auto Setup's Single target uses the existing algorithmic
+TP1 calculation, labeled Take profit. Normal strategy, liquidity, 1% risk and
+daily-budget checks still apply; choosing one target is not a Manual override.
+
+The selected structure determines minimum funding and protective order capacity.
+A single exit must meet the pair's exchange minimum once; Two targets must support
+both portions. Quantity steps, stop prices, fee reserves and normal buffers still
+apply. There is no fixed $6 wallet threshold or automatic increase in investment.
+Single target can therefore fit some smaller positions rejected by two-leg sizing.
+
+Review the selected structure, estimated exit quantities, stop, target(s), fee
+assumptions and profit/loss estimates on the proposal before approving. Actual
+net fills and fees determine the protected tradable quantity; verified below-step
+dust retains the existing separate accounting. Single-target screens show no TP2
+or fictitious second sale.
+
+Automatic scans still build Two targets by default. Their proposals now include
+**Change targets**: it retires that proposal's approval, opens target selection
+and mode choices, and requires a fresh validated proposal and final approval.
+It does not alter existing orders. Background rejections remain quiet. A setup
+observation started from a selected Single-target check retains that choice.
+
+Each new plan/journal records its structure and binds it to approved targets.
+Missing metadata in older records means the historical Two-target structure;
+existing positions and OCOs are not converted. Recovery, exact-position exit,
+performance and P&L support either structure. Unknown/inconsistent target metadata
+blocks new entries. No journal reset/migration is needed. Preserve `.env` and the
+entire `runtime_state` folder, and use **v1.11.0 or newer once Single-target records
+exist**; earlier presentation/planning code does not support those records.
+
 ## Guided choices, quiet setup watches and session limits (v1.10.0)
 
 At terminal startup, choose **1–10 parallel trades** before the app connects to
@@ -717,14 +758,14 @@ unchanged. Confirmed zero-fill notifications do not offer an automatic retry.
 
 Send `/check PARTI`, then choose **3 - Manual override**:
 
-- **Enter now:** type only `STOP TP1 TP2`. The proposal uses the current best ask
+- **Enter now:** type `STOP TP` for Single target or `STOP TP1 TP2` for Two targets. The proposal uses the current best ask
   plus 0.2%, rounded up to one valid tick, as the **maximum buy price**. Approval
   freezes that cap and the displayed maximum quantity, cost and estimated loss.
   A higher ask requires a fresh proposal; lower prices cannot increase quantity.
 - **Now preset: SL -3%, TP +5%/+8%:** no level typing. Levels are based on a fresh
   ask. These are optional manual levels, not a scanner recommendation. Review the
   resulting prices, warnings and quantity, then explicitly approve or reject.
-- **Wait at my price:** type `ENTRY STOP TP1 TP2`. After approval the bot watches
+- **Wait at my price:** type `ENTRY STOP TP` for Single target or `ENTRY STOP TP1 TP2` for Two targets. After approval the bot watches
   locally for up to 15 minutes, polling roughly every 2 seconds plus API latency.
   It submits one price-capped IOC when the ask reaches your entry and observed
   bid/last remain above the stop. It places **no resting Binance buy** while waiting.
