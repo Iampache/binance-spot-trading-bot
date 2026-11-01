@@ -200,6 +200,7 @@ def test_telegram_fast_flow_and_presets_still_require_approval(sim, monkeypatch)
         "res": {"symbol": "FOOUSDT", "price": 100, "status": "WARNING"},
     }
     tg.handle_check_callback({"id": "cb"}, "C3", "x")
+    tg.handle_check_callback({"id": "cb"}, "CT2", "x")
     keyboard = json.loads(messages[-1][1]["reply_markup"])
     assert any(b["callback_data"] == "CN:x" for row in keyboard["inline_keyboard"] for b in row)
     labels = {b["text"] for row in keyboard["inline_keyboard"] for b in row}

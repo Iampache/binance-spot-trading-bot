@@ -20,7 +20,7 @@ class Unavailable(ValueError):
         self.checks = {}
 
 
-def minimum_funding(filters, entry, fee, *, stop=None, normal=False):
+def minimum_funding(filters, entry, fee, *, stop=None, normal=False, exit_style="two"):
     """Find the smallest step-valid buy supporting both conservative exit legs.
 
     Before levels are chosen, entry is only a necessary lower-bound reference.
@@ -32,6 +32,8 @@ def minimum_funding(filters, entry, fee, *, stop=None, normal=False):
     if entry <= 0 or reference <= 0 or not 0 <= fee < em.D(".05"):
         raise ValueError("Invalid funding reference")
     step = filters["step"]
+    structure = {"exit_style": em.target_style({"exit_style": exit_style})}
+    count = len(em.target_fields(structure))
     margin = em.D("1.05") if normal else em.D(1)
     leg = max(filters["min_qty"], filters["min_notional"] * margin / reference)
     leg = (leg / step).to_integral_value(rounding=ROUND_CEILING) * step
@@ -41,26 +43,26 @@ def minimum_funding(filters, entry, fee, *, stop=None, normal=False):
         common = Decimal(math.lcm(a.numerator, b.numerator)) / Decimal(
             math.gcd(a.denominator, b.denominator)
         )
-    needed = max(2 * leg / (1 - fee), filters["min_qty"], filters["market_min_qty"])
+    needed = max(count * leg / (1 - fee), filters["min_qty"], filters["market_min_qty"])
     quantity = (needed / common).to_integral_value(rounding=ROUND_CEILING) * common
     net = em.round_to(quantity * (1 - fee), step)
-    half = em.round_to(net / 2, step)
-    if min(half, net - half) < leg:
+    portions = em.target_quantities(net, step, structure)
+    if min(portions) < leg:
         quantity += common  # Correct a Decimal division exactly on a step boundary.
         net = em.round_to(quantity * (1 - fee), step)
-        half = em.round_to(net / 2, step)
+        portions = em.target_quantities(net, step, structure)
     em.validate_qty(quantity, filters, entry, market=True, entry=normal)
-    em.validate_qty(half, filters, reference, entry=normal)
-    em.validate_qty(net - half, filters, reference, entry=normal)
+    for part in portions:
+        em.validate_qty(part, filters, reference, entry=normal)
     return {
         "quantity": quantity,
         "cost": quantity * entry * (1 + fee),
-        "half": half,
-        "rest": net - half,
+        "half": portions[0],
+        "rest": portions[1] if count == 2 else em.D(0),
     }
 
 
-def check(symbol, *, mode=None, signal=None):
+def check(symbol, *, mode=None, signal=None, exit_style="two"):
     """Check capacity, ownership/system evidence and pair-specific funding.
 
     mode=None is a preliminary all-mode check, not normal strategy validation.
@@ -181,12 +183,18 @@ def check(symbol, *, mode=None, signal=None):
                         rounding=ROUND_CEILING
                     ) * filters["tick"]
             normal = mode is not None and mode != "manual"
-            minimum = minimum_funding(filters, price, fee, stop=stop, normal=normal)
+            exit_style = em.target_style(
+                signal if signal is not None else {"exit_style": exit_style}
+            )
+            minimum = minimum_funding(
+                filters, price, fee, stop=stop, normal=normal, exit_style=exit_style
+            )
+            exit_description = "both exit legs" if exit_style == "two" else "the full-position exit"
             cap = em.D(limits["max_position_usdt"])
             if minimum["cost"] > cap:
                 raise Unavailable(
                     "INVESTMENT_CAP",
-                    f"This pair needs at least {minimum['cost']:.4f} USDT for both exit legs and the buy-fee reserve at the checked levels. Your cap is {cap:f} USDT.",
+                    f"This pair needs at least {minimum['cost']:.4f} USDT for {exit_description} and the buy-fee reserve at the checked levels. Your cap is {cap:f} USDT.",
                     actions=("setup", "portfolio"),
                     modes=normal,
                 )
@@ -194,7 +202,7 @@ def check(symbol, *, mode=None, signal=None):
             if minimum["cost"] > allocation:
                 raise Unavailable(
                     "FUNDS",
-                    f"Both exit legs and fees need at least {minimum['cost']:.4f} USDT. Available after entry-watch reservations: {available:.4f} USDT"
+                    f"{exit_description.capitalize()} and fees need at least {minimum['cost']:.4f} USDT. Available after entry-watch reservations: {available:.4f} USDT"
                     + (
                         f"; normal allocation after the 5% cash buffer: {allocation:.4f} USDT."
                         if normal

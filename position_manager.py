@@ -134,9 +134,12 @@ def details_text(view):
         if price is not None
         else "Current reference price: unavailable",
         f"SL: {rec['plan']['stop']}",
-        f"TP1: {rec['plan']['t1']} — {target_status(rec, 1)}",
-        f"TP2: {rec['plan']['t2']} — {target_status(rec, 2)}",
+        f"Targets: {'Single target — full position' if em.target_style(rec['plan']) == 'single' else 'Two targets — split position'}",
     ]
+    lines.extend(
+        f"{'TP' if em.target_style(rec['plan']) == 'single' else 'TP' + str(index)}: {rec['plan'][key]} — {target_status(rec, index)}"
+        for index, key in enumerate(em.target_fields(rec["plan"]), 1)
+    )
     if view["error"] or any(o.get("evidence_pending") for o in rec["orders"]):
         lines.append("Remaining quantity / stop coverage: verification pending")
     else:

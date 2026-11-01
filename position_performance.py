@@ -66,7 +66,11 @@ def calculate(rec, price, fee_rate, *, now=None):
         result["market_value"] = left * price
         result["distances"] = {
             name: (em.D(rec["plan"][key]) / price - 1) * 100
-            for name, key in (("SL", "stop"), ("TP1", "t1"), ("TP2", "t2"))
+            for name, key in (
+                (("SL", "stop"), ("TP", "t1"))
+                if em.target_style(rec["plan"]) == "single"
+                else (("SL", "stop"), ("TP1", "t1"), ("TP2", "t2"))
+            )
         }
     if fee_rate is not None:
         fee_rate = em.D(fee_rate)

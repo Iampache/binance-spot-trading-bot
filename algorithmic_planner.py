@@ -256,15 +256,22 @@ def validate_plan(sig, plan):
         raise ValueError("Algorithm: a closed candle breached the approved stop before entry")
     tick = em.symbol_filters(plan["symbol"])["tick"]
     _, t1, t2, _ = geometry(data, stats, D(plan["price"]), tick, approved_stop=plan["stop"])
-    if D(plan["t1"]) > t1 or D(plan["t2"]) > t2:
+    if D(plan["t1"]) > t1 or (em.target_style(plan) == "two" and D(plan["t2"]) > t2):
         raise ValueError("Algorithm: new resistance invalidates approved targets")
     fee, price, stop = (D(plan[k]) for k in ("fee_rate", "price", "stop"))
     net_reward = D(plan["t1"]) - price - (D(plan["t1"]) + price) * fee
     risk = price - stop + (price + stop) * fee
     if risk <= 0 or net_reward / risk < D("1.5"):
-        raise ValueError("Algorithm: TP1 reward/risk below 1.5R after reserved fees")
+        label = "take profit" if em.target_style(plan) == "single" else "TP1"
+        raise ValueError(f"Algorithm: {label} reward/risk below 1.5R after reserved fees")
 
-    proceeds = (D(plan["half"]) * D(plan["t1"]) + D(plan["rest"]) * D(plan["t2"])) * (1 - fee)
+    proceeds = sum(
+        (
+            D(plan[part]) * D(plan[target])
+            for part, target in zip(("half", "rest"), em.target_fields(plan))
+        ),
+        D(0),
+    ) * (1 - fee)
     if proceeds <= D(plan["cost"]):
         raise ValueError(
             "Algorithm: quantity precision/fee reserves leave no positive target-profit scenario"

@@ -3,6 +3,25 @@
 Release notes describe code changes. Git commits provide the exact history.
 Account settings, keys and trade journals remain local and are ignored by Git.
 
+## 1.11.0 — 2026-11-01
+
+- Add 1 = Single target / 2 = Two targets before mode selection, via named buttons
+  or number replies. Manual/Assisted collect the selected number of prices;
+  Single-target Auto Setup uses the existing first-target calculation.
+- Size funding, fee reserves and exchange order/list capacity for one full exit
+  or two split exits. Submit exactly one full-position OCO for Single target;
+  retain the two-list path and one-slot accounting for Two targets.
+- Bind target structure, levels and allocations to approval. Add Change targets
+  on proposals, retiring the old approval before requesting a new plan.
+  Guard canceled/stale selections across analysis and delivery.
+- Preserve structure in entry watches and journals; treat legacy records as Two
+  targets. Keep filled positions unchanged and reject inconsistent metadata.
+  Report Single-target performance, fills, fees, dust and exits without a TP2.
+- Keep automatic scans Two-target by default and routine rejected scans quiet.
+  Preserve all normal checks, explicit Manual exceptions and final approval.
+- Add 77 cases for single-target execution/accounting/recovery, crash boundaries,
+  funding/capacity, all mode flows, owner/message checks and cancellation races.
+
 ## 1.10.0 — 2026-11-01
 
 - Add owner-requested plain-language rejection cards with numbered known reasons,

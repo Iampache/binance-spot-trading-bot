@@ -1,6 +1,6 @@
 # NEXVANT algorithmic proposal design
 
-Display version: 1.10.0. Strategy identity: `atr-structure-v2`.
+Display version: 1.11.0. Strategy identity: `atr-structure-v2`.
 Reviewed public documentation on 31 October 2026 (Asia/Dubai).
 
 This is a deterministic rules-based proposal generator, not a trained AI model,
@@ -10,6 +10,21 @@ correctly reject every current symbol if the coin's own setup fails. Telegram
 approval remains mandatory, as explicitly confirmed by the account owner.
 
 ## User control
+
+V1.11.0 adds a per-proposal exit structure: Single target (one OCO protecting all
+tradable net inventory) or Two targets (the existing split OCOs at a common stop).
+Manual and Assisted collect only the selected prices; Single-target Auto Setup
+keeps the original first-target geometry. Fees, tick-rounded RR and normal risk
+checks remain. Funding and order-capacity checks use one or two exit portions;
+the 1.5R rule is not relaxed to fit a smaller balance. Both styles use one slot.
+
+Structure and allocations are approval-bound and preserved when an approved entry
+watch triggers. Change targets consumes the existing proposal and opens a fresh
+selection/mode flow; it does not modify exchange orders. Legacy records without
+the field retain Two targets. Single-target records contain no second target.
+Actual fills/fees and retained dust determine inventory and P&L in either case.
+Automatic scanning remains Two-target by default, with Change targets available
+on delivered proposals. Strategy identity remains unchanged.
 
 V1.10.0 adds guided, owner-requested reason cards and read-only setup observations
 lasting 1/3/15 minutes. They repeatedly analyze fresh data; only a validated live

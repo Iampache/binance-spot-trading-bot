@@ -168,9 +168,16 @@ def scan_candidates():
 
 
 def require_finite_levels(sig):
-    values = [em.D(sig[k]) for k in ("entry", "stop", "t1", "t2")]
-    if not 0 < values[1] < values[0] < values[2] < values[3]:
-        raise ValueError("STOP < ENTRY < TP1 < TP2 required, all finite and positive")
+    fields = em.target_fields(sig)
+    if em.target_style(sig) == "single" and "t2" in sig:
+        raise ValueError("Single target requires one take-profit level only")
+    values = [em.D(sig[k]) for k in ("stop", "entry", *fields)]
+    if values[0] <= 0 or any(a >= b for a, b in zip(values, values[1:])):
+        raise ValueError(
+            "STOP < ENTRY < TP required"
+            if len(fields) == 1
+            else "STOP < ENTRY < TP1 < TP2 required, all finite and positive"
+        )
 
 
 def market_liquidity(symbol, estimated_cost, *, enforce=True):
@@ -268,23 +275,29 @@ def _build_plan(sig, *, approved_bounds=None, watch_id=None):
             raise PlanChangedError(
                 "Ask exceeds approved maximum buy price; approve a fresh proposal"
             )
-    stop, t1, t2 = (em.round_to(sig[k], f["tick"]) for k in ("stop", "t1", "t2"))
+    fields = em.target_fields(sig)
+    levels = {k: em.round_to(sig[k], f["tick"]) for k in ("stop", *fields)}
+    target_label = "Take profit" if em.target_style(sig) == "single" else "TP1"
+    stop, t1 = levels["stop"], levels["t1"]
     if sig.get("target_policy") == "scanner_r_multiple_v1" and not manual and not algorithmic:
         # Compile only NEW generated suggestions against the original signal entry.
         # Never chase a newer quote, change manual levels or rewrite approved exits.
         reference = em.D(sig["entry"])
         reference_risk = reference - stop
-        t1, t2 = (
+        compiled = tuple(
             ((reference + multiple * reference_risk) / f["tick"]).to_integral_value(
                 rounding=ROUND_CEILING
             )
             * f["tick"]
-            for multiple in (MIN_RR, Decimal("2.5"))
+            for multiple in (MIN_RR, Decimal("2.5"))[: len(fields)]
         )
+        levels.update(zip(fields, compiled))
+        t1 = levels["t1"]
         ceiling = sig.get("resistance_ceiling")
         if ceiling is not None and t1 > em.D(ceiling):
             raise ValueError("Rounded scanner TP1 exceeds observed resistance; skip trade")
-    if not 0 < stop < price < t1 < t2:
+    ordered = [stop, price, *(levels[k] for k in fields)]
+    if stop <= 0 or any(a >= b for a, b in zip(ordered, ordered[1:])):
         raise ValueError("Rounded protective levels invalid")
     risk = price - stop
     if not Decimal(".01") <= risk / price <= Decimal(".06"):
@@ -302,11 +315,11 @@ def _build_plan(sig, *, approved_bounds=None, watch_id=None):
                 rounding=ROUND_CEILING
             ) * f["tick"]
             raise ValueError(
-                f"TP1 reward/risk is below 1.5R after price/tick checks. "
-                f"Checked entry {em.fmt(price)}, SL {em.fmt(stop)}, TP1 {em.fmt(t1)}; "
-                f"minimum TP1 {em.fmt(minimum)}. Signal entry {em.fmt(sig['entry'])}."
+                f"{target_label} reward/risk is below 1.5R after price/tick checks. "
+                f"Checked entry {em.fmt(price)}, SL {em.fmt(stop)}, {target_label} {em.fmt(t1)}; "
+                f"minimum {target_label} {em.fmt(minimum)}. Signal entry {em.fmt(sig['entry'])}."
             )
-        warnings.append(f"TP1 reward/risk {(t1 - price) / risk:.2f}R is below 1.5R")
+        warnings.append(f"{target_label} reward/risk {(t1 - price) / risk:.2f}R is below 1.5R")
     watch_costs = [
         em.D(rec["approved_bounds"]["cost"]) for rec in records if empty_watch(rec, rec["id"])
     ]
@@ -374,15 +387,16 @@ def _build_plan(sig, *, approved_bounds=None, watch_id=None):
         warnings.append(f"Spread {spread:.2f} bps exceeds {MAX_SPREAD_BPS} bps")
     if manual and depth < qty * price * MIN_DEPTH_MULTIPLE:
         warnings.append(f"Nearby order-book depth {depth:.2f} USDT is below the strategy minimum")
-    half = em.round_to(qty * (1 - fee) / 2, f["step"])
-    rest = em.round_to(qty * (1 - fee), f["step"]) - half
+    portions = em.target_quantities(em.round_to(qty * (1 - fee), f["step"]), f["step"], sig)
+    half, rest = portions[0], portions[1] if len(portions) == 2 else Decimal(0)
     plan = {
         "symbol": symbol,
         "entry_mode": mode,
+        "exit_style": em.target_style(sig),
         "price": price,
         "stop": stop,
         "t1": t1,
-        "t2": t2,
+        **({"t2": levels["t2"]} if len(fields) == 2 else {}),
         "qty": qty,
         "half": half,
         "rest": rest,
@@ -398,7 +412,7 @@ def _build_plan(sig, *, approved_bounds=None, watch_id=None):
         "loss": loss,
         "risk_budget": budget,
         "gain1": half * (t1 - price),
-        "gain2": rest * (t2 - price),
+        "gain2": rest * (levels["t2"] - price) if len(fields) == 2 else Decimal(0),
         "risk_pct": risk / price * 100,
         "rr": (t1 - price) / risk,
         "spread_bps": spread,
@@ -424,6 +438,8 @@ def _build_plan(sig, *, approved_bounds=None, watch_id=None):
 def approval_bounds(old, fresh):
     if not same_trading_limits(old, fresh):
         return False
+    if em.target_style(old) != em.target_style(fresh):
+        return False
     if old["symbol"] != fresh["symbol"] or str(old.get("manual_override", False)) != str(
         fresh.get("manual_override", False)
     ):
@@ -439,7 +455,8 @@ def approval_bounds(old, fresh):
     # Changing quantity, cost, risk or any exit level requires a NEW approval.
     return (
         all(em.D(fresh[k]) <= em.D(old[k]) for k in ("qty", "cost", "loss"))
-        and all(em.D(fresh[k]) == em.D(old[k]) for k in ("stop", "t1", "t2"))
+        and all(em.D(fresh[k]) == em.D(old[k]) for k in ("stop", *em.target_fields(old)))
+        and all(em.D(fresh[k]) <= em.D(old[k]) for k in ("half", "rest"))
         and abs(em.D(fresh["price"]) / em.D(old["price"]) - 1) <= Decimal(".005")
     )
 
@@ -471,7 +488,8 @@ def execute(plan, *, approval=None, monitor=True):
             "entry": plan["price"],
             "stop": plan["stop"],
             "t1": plan["t1"],
-            "t2": plan["t2"],
+            **({"t2": plan["t2"]} if em.target_style(plan) == "two" else {}),
+            "exit_style": em.target_style(plan),
             "manual_override": plan.get("manual_override", False),
         }
         sig.update({key: plan[key] for key in ALGORITHM_FIELDS if key in plan})
@@ -557,7 +575,9 @@ def submit_entry(rec, plan):
         else:
             rec["state"] = "bought"
             em.save_trade(rec)
-            em.submit_protection(rec, em.inventory(rec), plan["t1"], plan["t2"], plan["stop"], f)
+            em.submit_protection(
+                rec, em.inventory(rec), plan["t1"], plan.get("t2"), plan["stop"], f
+            )
             remaining, covered = em.inventory(rec), em.coverage(rec)
             if em.protection_sufficient(rec, f):
                 em.alert(
@@ -660,7 +680,8 @@ def advance_watch(rec):
         "entry": plan["price"],
         "stop": plan["stop"],
         "t1": plan["t1"],
-        "t2": plan["t2"],
+        **({"t2": plan["t2"]} if em.target_style(plan) == "two" else {}),
+        "exit_style": em.target_style(plan),
         "entry_mode": "watch",
         "manual_override": plan["manual_override"] == "True",
     }

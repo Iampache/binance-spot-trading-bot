@@ -295,6 +295,7 @@ def test_all_modes_check_occupied_slots_before_input_or_algorithm_analysis(
     ta.execute(plan, approval=approved(plan), monitor=False)
     cid = tg.send_check_card(result(symbol="BARUSDT"))
     card = tg.checks[cid]
+    card.update(stage="modes", exit_style="two")
     monkeypatch.setattr(
         tg.algo, "propose", lambda *args, **kwargs: pytest.fail("Capacity must be checked first")
     )
@@ -310,6 +311,7 @@ def test_funding_failure_has_a_matching_setup_cta_instead_of_opening_a_mode(sim,
     sim.min_notional = "6"
     cid = tg.send_check_card(result())
     tg.handle_callback(callback("C3", cid, tg.checks[cid]["mid"]))
+    tg.handle_callback(callback("CT2", cid, tg.checks[cid]["mid"]))
     text = notices(ui)[-1]
     assert "12.1121" in text and "/setup" in text and "Funding: blocked" in text
     assert not tg.state and not tg.pending and not sim.writes

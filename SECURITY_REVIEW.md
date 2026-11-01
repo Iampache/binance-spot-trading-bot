@@ -7,6 +7,34 @@ agent, plus independent automated static analysis using Bandit. It is **not an
 independent human or third-party audit**, and is not certification for live trading.
 No Binance account, production credential or Telegram integration was accessed.
 
+## Single or Two-target protection (v1.11.0)
+
+The selected structure controls required prices, net quantity allocation, minimum
+funding and exchange order/list headroom before buying. Single target uses one
+list with a full tradable quantity; Two targets retains split protection. Actual
+execution/fees still determine owned inventory; below-step dust remains unsold and
+separately costed. Full original risk reservations and ownership checks remain.
+
+Approval binds structure, levels and exit allocations. Change targets consumes
+the old proposal and requires a newly validated approval. Owner/chat, message,
+account, settings revision, generation and expiry checks protect selections,
+including slow analysis/delivery races. The change action is not an exchange
+cancel/replace action. Background plans retain Two targets by default.
+
+New journals carry explicit metadata and reject unknown styles, extra/mismatched
+protective lists or approved levels. Legacy records default to the historical
+Two-target contract. Existing filled positions are not rewritten. Keep v1.11.0
+or newer after creating Single-target records. Current-target calculations are
+shown without a phantom second sale. Recovery and confirmed exits retain durable
+IDs, evidence-based accounting and no resubmission of ambiguous writes.
+
+Seventy-seven new offline cases cover one-list protection and TP/SL accounting,
+fee dust, partial maker/buy fills, timeouts, OCO rejection/crash, fourteen journal
+crash boundaries, restart/confirmed exits, legacy records, funding/capacity,
+approval/journal tampering, UI modes, authorization and cancellation/settings races.
+This is implementing-agent review with automated checks, not an independent audit
+or live-execution verification.
+
 ## Guided setup watches and session limits (v1.10.0)
 
 Owner/chat and message binding guard new controls. Scan-log navigation freezes

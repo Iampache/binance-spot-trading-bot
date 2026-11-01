@@ -106,6 +106,7 @@ def test_successful_manual_proposal_consumes_mode_menu_without_buying(sim, ui):
     calls, result = ui
     cid, original = next(iter(tg.checks.items()))
     tg.handle_callback(callback("C3", cid, original["mid"]))
+    tg.handle_callback(callback("CT2", cid, tg.checks[cid]["mid"]))
     menu = tg.checks[cid]
     tg.handle_callback(callback("CN", cid, menu["mid"]))
     tg.handle_message(msg("100 97 105 108"))
@@ -185,6 +186,7 @@ def test_expired_menu_also_clears_associated_input_form(sim, ui):
     calls, result = ui
     cid, original = next(iter(tg.checks.items()))
     tg.handle_callback(callback("C3", cid, original["mid"]))
+    tg.handle_callback(callback("CT2", cid, tg.checks[cid]["mid"]))
     tg.handle_callback(callback("CN", cid, tg.checks[cid]["mid"]))
     assert tg.state["menu_id"] == cid
     tg.checks[cid]["created"] = time.time() - tg.CHECK_TTL - 1
