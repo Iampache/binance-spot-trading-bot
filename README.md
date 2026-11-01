@@ -1,6 +1,413 @@
-# Binance Spot Trading Bot by IamPache
+# NEXVANT
 
-A Python-based Binance Spot Trading Assistant with Telegram integration.
+Binance Spot trading assistant with Telegram control. Concept & developed by Fazil.
+
+## Guided choices, quiet setup watches and session limits (v1.10.0)
+
+At terminal startup, choose **1–10 parallel trades** before the app connects to
+Binance or Telegram. Press Enter for one. This choice applies to the current run;
+it does not place trades or edit source code. Values above ten are rejected.
+The ceiling is a release setting in `trading_settings.py`, changed by a developer,
+not by entering a larger number in chat. The app waits at this prompt: local
+monitoring and restart reconciliation begin only after you answer. EOF/Ctrl+C
+cancels startup without connecting. Existing Binance orders remain at the exchange.
+
+Owner-requested checks now offer plain-language reasons and relevant next steps.
+A blocked setup can show **Watch setup** or **Entry unavailable**, numbered known
+reasons, and the appropriate **Trading setup / View positions / Portfolio risk /
+System health** controls. A full limit identifies the occupied pairs and count;
+an accounting/protection fault directs you to health instead of suggesting a
+larger limit. Unchecked stages are labeled; passing the scanner does not claim
+that all entry checks passed. Exact technical diagnostics remain behind **Details**.
+
+Choose **Ignore**, **Watch 1 min / 3 min / 15 min**, **Trading options**, **Details**
+or **Check again**. Trading options retains Manual, Assisted and Auto Setup with
+fresh entry checks. **Ignore** dismisses this check/observation; it does not exit
+a filled position or reject a separately delivered proposal. Use `/position`
+and its explicit exit confirmation to close a bot position.
+
+A setup watch repeatedly checks the pair during the chosen period, at up to one
+check per 15 seconds. It sends a new notification only when a fresh plan passes
+validation and can be delivered with **Approve / Reject / Details**. No buy, slot
+reservation or fund reservation occurs. Its original message is edited quietly
+when it ends without a proposal. Stop/Ignore, `/cancel`, settings changes, shutdown
+and restart invalidate these observations. This differs from an **approved entry
+watch**, which already has bounded buying authority and reserves cash/a slot.
+Expired/canceled observations cannot register a late approval.
+Approved entry watches retain their existing restart cancellation: after a
+restart, a new entry requires a fresh proposal and approval.
+
+Background scanning remains proposals-only. `/scanlog` stays an explicit cached
+diagnostic request and now offers **Check / watch PAIR** navigation. These buttons
+start a fresh check of the displayed pair; they do not approve cached levels.
+
+`/setup` changes are now **current-session only**. Review the new value and choose
+**Use for this session (default)**. The next startup asks for the parallel count
+again, and the investment cap returns to its saved baseline (12 USDT if never
+changed). Changes invalidate pending approvals and untriggered entry/setup
+watches; they never close or reprice filled positions. Existing settings/audit
+files remain intact. Old saved counts above ten remain readable, but effective
+limits never exceed ten; existing positions are not closed to enforce a lower cap.
+
+Permanent defaults are operator-managed. **About permanent limits** is explanatory;
+there is no ordinary Telegram permanent-save endpoint, Helpdesk service or admin
+approval workflow in this release. The supplied imaginary Helpdesk address is
+not configured as a working contact. The local settings API retains explicit
+persistent updates for operator tooling; it never promotes other session overrides.
+
+Before opening a mode, after levels are chosen and before final approval, entry
+checks verify capacity, account/order ownership, execution/fee evidence and funds.
+The minimum amount comes from the pair's actual quantity steps and minimum order
+values for **both sell legs**, plus fee reserves; there is no fixed $6 wallet rule.
+Before stop levels are chosen this funding check is preliminary. Normal modes
+retain their cash/notional buffers, liquidity, 1% sizing and 3 USDT risk budget.
+Manual keeps its explicit strategy/risk exceptions; account, ownership, funds,
+exchange rules, limits, protection and final approval still apply. BTC weakness
+remains advisory. A signed account-permission check also precedes every new buy.
+
+Keep `.env` and the entire `runtime_state` folder when pulling and restarting.
+No journal migration, new dependency or live trade is required by this update.
+
+## Automatic scan notifications: proposals only (v1.9.0)
+
+Background scanning sends a Telegram message when a plan passes validation and
+offers **Approve / Reject / Details**. Blocked candidates, cooldowns and routine
+"no proposal" outcomes stay quiet. There is no duplicate candidate summary after
+a delivered proposal. Trade fills, stop/target outcomes, protection failures and
+reconciliation alerts retain their existing notification paths. Replies to your
+own `/check` or other commands remain available.
+
+Use `/scanlog` to request the latest automatic scan's candidate/outcome counts,
+skipped pairs, reasons and Dubai timestamp. This report is read-only, contains no
+approval controls, and does not scan again or submit an order. Long diagnostics
+are split without cutting normal pair/status lines. The process-local cache
+resets on restart; interrupted scans are labeled. Complete levels and technical
+validation diagnostics remain in the console logs.
+
+`/showpr` prioritizes the last successfully delivered proposal. Later skipped
+pairs cannot replace it. If no proposal has been delivered since startup, it can
+still show the last candidate preview on explicit request. All such snapshots
+are historical/view-only and cannot reactivate approval.
+
+The old `SCAN_CANDIDATE_NOTIFICATIONS` variable is retired and ignored, including
+when an existing `.env` contains `true`. No `.env` edit is needed. Pull and restart
+the assistant from the same folder, retaining `runtime_state`, to apply the policy.
+That release changes notification delivery only: the 1.5R threshold, price/tick checks,
+liquidity, funds, risk, trade limits and fresh final approval remain enforced.
+
+## Live position performance and portfolio risk (v1.8.0)
+
+Send `/position`, select a trade and use **Refresh** to update its performance.
+The details now show time held, remaining acquisition cost, reference market
+value, estimated unrealized P&L in USDT/percent after a sell-fee reserve, actual
+realized P&L to date, their combined estimate and the percentage move from the
+reference price to SL/TP1/TP2. Crossing a displayed target never counts as a fill;
+target status still comes from exchange execution evidence. A fully sold trade
+awaiting monitor closure displays its realized result without inventing another
+sale. Holding duration stops at the final fill when inventory is flat.
+
+Remaining cost is actual acquisition cost (including supported actual fees)
+allocated to remaining net units. The sold portion's cost is allocated once to
+realized P&L, so TP1 profit is not counted again in the remaining estimate. Actual
+BNB fees use validated historical references at fill time; current BNB prices
+never replace missing history. Future sell fees use the current conservative
+commission reserve, not a stale approved fee or an assumed zero. Missing price,
+fee or execution evidence makes the affected metric unavailable.
+
+Send `/portfolio` or tap **Portfolio risk** on `/start` to view:
+
+- Occupied/free trade slots, entry-watch count and the per-trade investment cap.
+- Account-wide free/locked USDT, funds reserved for unfilled bot watches and
+  free USDT after those reservations. Locked USDT is not added to spendable cash.
+- Cost/value of remaining bot holdings, estimated net unrealized P&L and actual
+  realized P&L on active trades, with per-position summaries.
+- Full planned risk reserved for active trades/watches, retained-dust cost,
+  net realized loss used today in UTC and the normal daily budget balance.
+- The 1% sizing reference, normal new-trade risk allowance before plan checks,
+  and a separate estimated loss on remaining holdings at original stops.
+
+The full original plan risk remains reserved after TP1, matching existing entry
+policy. Stop scenarios describe hypothetical fills at original levels; gaps,
+slippage, fees and incomplete protection can make actual losses larger. Incomplete
+stop coverage is explicitly reported. Manual's existing override can leave the
+normal budget negative; the report shows that rather than hiding it as zero.
+Free slots or positive budget do not authorize an entry; use `/health` for
+blockers and approve a fresh validated plan before every buy.
+
+Values update on request, using ticker reference prices rather than executable
+sell quotes. Active fractional units are included in marked value and remain
+unsold. Closed retained dust and its acquisition cost are listed separately;
+they use no active slot and create no invented realized P&L. External Binance
+positions are excluded from bot P&L/risk, while USDT balances cover the account.
+An incomplete position valuation makes the affected aggregate unavailable rather
+than showing a misleading subtotal. Concurrent local lifecycle/settings changes
+also withhold totals and ask for a refresh. Dubai timestamps do not change the
+UTC risk-accounting day; `/pnl` retains its completed-trade Dubai-day report.
+
+These views only read detached exchange/journal snapshots. They do not submit,
+cancel, close or reprice orders, persist fill/fee updates, or change risk settings.
+The monitor retains normal durable reconciliation. Keep the same `runtime_state`
+when upgrading; no journal migration or new dependency is required.
+
+## Bot health (v1.7.0)
+
+Send `/health` or tap **Bot health** on `/start`. The owner-only report shows:
+
+- Version, environment, process uptime and Dubai-time check timestamps.
+- A fresh authenticated account/open-order check and the last successful check
+  in this process. A later failure keeps the old timestamp visible but marks the
+  current read unavailable; it does not present cached data as current.
+- Each active trade's monitor: running, retrying, delayed or stopped, with its
+  immutable trade ID, last successful reconciliation and safe failure reason.
+- Automatic scanner status and its last successful cycle. Deliberately disabled
+  scanning is shown as OFF; on-demand checks remain available.
+- Verified local limits, occupied slots, saved inventory/stop coverage, retained
+  dust, available USDT and the normal daily risk budget.
+- Account-wide blockers such as full slots, unresolved protection/accounting,
+  invalid settings/journals, changed/missing or unrecognized open orders, funds,
+  exchange permissions, live-entry configuration and shutdown. Normal daily-risk
+  gates are shown separately because Manual has an explicit risk override.
+
+**Health OK does not mean a trade can be entered.** Full slots and exhausted
+normal risk can be expected operating limits while the bot works correctly.
+Coin-specific strategy, exchange minimums, price, fees and final approval still
+apply to every fresh plan. A disabled/stopped scanner is distinct from a position
+monitor. A thread that is alive but has not progressed for over 180 seconds is
+shown as delayed; scanner delay uses 20 minutes, beyond its normal 15-minute cycle.
+These observations do not prove a deadlock or automatically restart workers.
+
+The report performs reads only: it never submits/cancels orders, imports manual
+Binance purchases, repairs records, or changes entry rules. It compares open
+orders with the journal and flags state changing during the check for a refresh.
+Saved quantities are labeled as saved; this account/open-order check does not
+replace full fill/fee reconciliation by the monitor. It avoids the trading
+operation lock, so it does not wait for a recovery operation to release that
+lock. Normal network timeouts still apply. Long reports are split into messages.
+
+Heartbeat/check history is process-local and resets on restart. Durable trading
+records and settings remain in the same account-scoped `runtime_state`; no
+migration/reset is required. No extra background exchange polling is added.
+
+## Fractional PEPE recovery and retained dust (v1.6.0)
+
+The reported PEPE position had **1,723,228.05 PEPE** remaining but protective
+orders covered **1,723,228 PEPE**. Base-asset commission left a **0.05 PEPE** tail
+below the exchange's one-PEPE quantity step. Recovery previously treated that
+tail as inventory requiring an emergency sale, rounded the sale to zero, raised
+`ValueError`, and repeated the same reconciliation warning. This differs from
+the earlier missing BNB fee-reference problem; the generic alert hid the cause.
+
+Recovery now preserves working stops when all exchange-tradable units are
+covered and reports the below-step fraction separately. Actual inventory and
+coverage remain visible; the fraction is not marked sold or rounded out of the
+ledger. Restart recovery can heal this particular `needs_attention` state without
+canceling the existing OCOs or placing another order. A whole uncovered lot,
+unknown order outcome or missing fee evidence still blocks new entries.
+
+After every sellable unit is closed, a verified fraction strictly below the
+`LOT_SIZE` step moves into a **retained-dust quantity and acquisition-cost bucket**
+in the same atomic trade journal. The tradable position closes and frees its
+slot. `/status`, position details, result messages and `/pnl` report the retained
+asset and cost separately. Realized P&L includes actual sales and their allocated
+cost only; retained dust has no invented sale proceeds or realized loss. Its
+cost continues to reserve normal portfolio risk capacity. A tiny partial buy
+with no sellable units can close into this bucket without inventing a sale.
+
+Classification requires terminal, reconciled orders, verified fees/costs and
+physical inventory above the pre-entry baseline. Even a small remainder **at
+least one quantity step** remains unresolved if it cannot satisfy order minimums.
+There is no automatic conversion, extra purchase to meet minimums, or sale of
+unrelated holdings. Later entries include old dust in their ownership baseline.
+The retained ledger is historical acquisition evidence; external manual dust
+conversion, withdrawal or disposal is not automatically accounted as a sale.
+
+Recovery warnings now identify the pair/trade and use fixed reason codes for
+known local validation failures without exposing raw API errors. Preserve the
+entire `runtime_state` folder when upgrading. **After retained-dust closures,
+keep v1.6.0 or newer:** older code rejects closed records with positive inventory.
+Do not downgrade or reset the journal to clear a warning. Two genuinely active
+positions still occupy two slots even when a fractional-tail warning is healed.
+
+## NEXVANT identity and Telegram dashboard (v1.5.0)
+
+The product is now **NEXVANT** across startup, command help, the Windows window
+title/launcher, scanner and documentation. `branding.py` holds the shared name,
+version, descriptions and artwork paths. Original midnight-navy/teal artwork is
+included in [assets/nexvant-welcome.png](assets/nexvant-welcome.png) and
+[assets/nexvant-avatar.png](assets/nexvant-avatar.png).
+
+After pulling and restarting the assistant, send `/start` for a banner dashboard:
+**Discover tokens**, **Check a coin**, **Positions**, **Today's P&L**, **Trading
+setup**, **Account status**, **Portfolio risk**, **Bot health** and **All commands**. Buttons open the existing
+owner-authorized flows. `/help` retains the full guide; trade approvals and exit
+confirmations remain on their own proposal/position messages. Welcome artwork is
+sent at startup or on `/start`, not on every alert. Missing/rejected welcome images
+fall back to the same dashboard in text.
+
+On startup the app applies the **NEXVANT display name, description, About text,
+profile icon and native Telegram Menu commands** using Bot API methods. Command
+scope/menu target only the configured owner's chat. Successful operations are
+cached in the account's ignored `telegram_ui.json`, keyed by bot/chat/content and
+avatar digest, so unchanged profile photos are not repeatedly uploaded. Failed
+methods retry on a later startup. A cosmetic cache failure does not reset or
+override trading settings, journals, balances or approval state. Metadata/image
+failures are logged safely and do not stop position monitoring or `/help`.
+
+Telegram controls the surrounding chat layout, fonts, ads and client theme.
+Bot API profile methods do not change/reserve the bot's **@username**. A desired
+handle is managed separately through BotFather under Telegram's current rules
+and availability; the existing handle can keep working with the NEXVANT display
+name. If profile-photo/name methods are unavailable, use BotFather `/setname`
+with `NEXVANT` and `/setuserpic` with the supplied avatar. `/setdescription` and
+`/setabouttext` provide manual fallbacks for the shared descriptions.
+
+Source remains at the existing GitHub URL. Keep the same checkout, `.env`,
+launcher path and `runtime_state` across the rename: active trades recover from
+their existing account-scoped journals. The trading algorithm, caps, fees,
+ownership and approval requirements are unaffected by the rebrand.
+
+## Active positions and early exit (v1.4.0)
+
+Send `/position` (or `/positions`) to see a numbered list of bot positions and
+entry watches, ten per page. Tap a pair or type its number. The details show the
+average filled entry, entry cap, current reference price, original SL/TP1/TP2,
+target execution status, remaining bot quantity and observed stop coverage.
+Opening/refreshing these views reads exchange state but never cancels or sells.
+Unavailable verification is explicitly labeled rather than presented as coverage.
+Numbers/buttons identify the original saved trade even if the active list changes.
+
+To close a filled trade before its targets/stop:
+
+1. Select the trade and tap **Exit Trade**.
+2. Review the exact pair/trade, current reference price and remaining quantity.
+3. Tap **Confirm Exit Trade**, or **Keep Position** to leave management unchanged.
+
+Confirmation requests a market close of this bot trade, not just order
+cancellation. Any pending buy is canceled, then its OCOs are released one at a
+time and the released, verified bot-owned remainder is sold. Other bot positions
+and unrelated holdings are preserved. Market prices/fees can change the result,
+and a close can require continued reconciliation; closure is not guaranteed by
+the initial acknowledgment. **TRADE CLOSED** and the reconciled net result confirm
+completion. `/position` shows pending exits; `/pnl` includes fully accounted closes.
+
+An accepted request is journaled before exchange handling starts and recovery
+continues it after restart. `/cancel` cancels unconfirmed UI selections; it cannot
+undo an accepted exit. Confirmation expires after five minutes by default; views
+expire after ten. Repeated, expired, canceled or replaced controls do not trigger
+another sale. Old controls never target a newer trade in the same pair.
+
+Unfilled watches offer **Cancel Entry Watch**, with their own confirmation and
+no sell order. If entry starts while that confirmation is open, it is rejected;
+review the now-filled position before requesting an exit. The confirmed CLI
+close remains available and now also cancels an unfilled watch without buying.
+Positions/settings/journals stay in the same account-scoped `runtime_state`.
+
+## Account setup, daily results and shutdown (v1.3.0)
+
+Send `/setup` to view your limits and choose **Change max trades** or
+**Change max investment**. Enter the new value, review the resulting limits and
+tap **Use for this session (default)**. Defaults remain **1 active trade / 12 USDT
+per trade**. From v1.10.0 the trade count accepts whole numbers **1–10**; the investment cap accepts a positive
+USDT amount with up to two decimals and includes reserved buy commission.
+These are ceilings, not guaranteed allocation: available funds, normal 1% risk
+sizing, the 3 USDT daily budget and exchange minimums can reduce size or block entry.
+
+Limits apply immediately. From v1.10.0 Telegram changes are session-only and
+recorded in process memory; they do not update the durable baseline. Earlier
+releases saved confirmed changes in
+`runtime_state/<environment>/<account_uid>/settings.json`, with revision, old/new
+values, UTC timestamp and actor. That baseline/audit remains valid and ignored by
+Git; only local operator tooling can save future defaults. `.env` remains for
+credentials and runtime flags; limit variables there do not override `/setup`.
+Missing settings use defaults; corrupt settings block new entries rather than
+silently resetting. Preserve the entire `runtime_state` folder across upgrades.
+
+Different USDT pairs can run concurrently within the selected count. Duplicate
+pairs and uncertain/unprotected records still block entries. Other positions'
+open OCO orders must match verified bot ownership; external or changed orders
+block. Watch costs reserve free USDT; each active position/watch reserves its full
+planned stop risk against the normal daily budget. Recorded UTC fill-day results
+still determine realized daily loss. This reservation is conservative after TP1
+and does not guarantee losses cannot exceed the budget during gaps/slippage.
+Manual risk exceptions remain explicit. Entry submissions are serialized, while
+each position is monitored separately; existing order/list usage counts toward
+exchange capacity. Changing settings invalidates old proposals and cancels
+untriggered watches. Lower limits never close or reprice existing positions; new
+entries wait until within limits again. Each new buy requires final approval.
+
+Send `/pnl` for today's **fully completed bot trades in Dubai time (UTC+4)**:
+completed count, wins/losses/breakeven, profit, loss and net USDT after recorded
+commissions. A trade belongs to its final sell-fill day, and its entire net result
+is included even if TP1 filled on a prior day. Open trades, partial exits,
+unfilled watches, zero-fill entries and pending accounting are excluded. BNB fees
+retain saved USDT reference valuation. Invalid journals show an unavailable
+report rather than a false zero. This display is distinct from the UTC daily-risk
+gate, which includes realized partial exits on their fill day.
+
+Ctrl+C announces **“Please wait while I finish saving the current session
+details...”** before waiting for pending work. Trade transitions are already
+journaled continuously; shutdown stops new buys and joins entry, monitor,
+scanner and result-delivery workers before releasing the instance lock. A Windows
+console callback displays the notice independently of the main thread's network
+wait. Current API calls may still need to return before exit. CMD's own
+“Terminate batch job (Y/N)?” prompt may still follow; it is separate from the bot.
+Existing Binance OCOs remain active while local monitoring is stopped.
+
+Code versions and release notes are tracked in [CHANGELOG.md](CHANGELOG.md) and
+Git commit history. Local settings, credentials and trade history stay off GitHub.
+
+## Discover tokens (v1.2.0)
+
+Send `/discover` and choose **High Volume** or **Top Gainers**, or use
+`/discover volume` / `/discover gainers` directly. Each ranking shows up to five
+USDT Spot pairs with reference prices, rolling 24h changes and USDT turnover.
+Each pair has **Spot** (Binance page), **Check setup** (fresh chart analysis), and
+**Trading options** (Manual / Assisted / Auto Setup) buttons.
+
+Discovery uses public `/api/v3/exchangeInfo` and `/api/v3/ticker/24hr` data, with
+no account access or orders. It filters for active Spot trading, OCO/order-type
+support, at least 10M USDT turnover, and the scanner's existing stablecoin and
+leveraged-token suffix exclusions. High Volume ranks USDT turnover; Top Gainers
+ranks positive percentage changes. Extreme moves remain visible with an
+automatic-entry-limit warning. A ranking is research, not an executable setup;
+the chosen mode still runs its existing validation and requires final approval.
+Browsing remains available while another trade occupies the single active slot.
+Cancel/expiry removes the menu controls; `/scan` remains a single-coin check alias.
+
+**New Listings is not available yet.** Its button explains the limitation: the
+Spot symbol API does not establish an official listing date. A verified source
+is required before implementing that ranking. These filtered lists do not claim
+to reproduce Binance's broader dashboard exactly.
+
+## Algorithmic proposal modes (v1.1.0)
+
+Send `/check COIN` → **3 - Trading options**:
+
+| Mode | You provide | Bot provides | Risk policy |
+| --- | --- | --- | --- |
+| Manual | Entry, SL, TP1, TP2 | Validation and bounded execution | Explicit manual override |
+| Assisted | TP1 and TP2 | Statistical entry cap and SL | Normal risk limits |
+| Auto Setup | Approval after reviewing the proposal | Statistical entry cap, SL, TP1, TP2 | Normal risk limits |
+
+Every mode requires a fresh Telegram approval. “EXIT” means the stop-loss trigger;
+profit-taking exits are TP1 and TP2. There is no autonomous buying and no AI model.
+The former fixed -3%/+5%/+8% preset has been replaced with data-based proposals.
+The existing background scanner's strategy is retained. These new algorithm modes
+are on-demand and use closed-candle trend/volatility/volume/structure checks.
+They can reject a setup rather than invent levels. See [ALGORITHM_DESIGN.md](ALGORITHM_DESIGN.md)
+for exact formulas, reviewed Binance/bot references, tests and unverified strategy
+performance. Later development-history sections describe previous UI versions.
+
+As requested in v1.2.0, **BTC weakness is advisory in Assisted and Auto Setup**,
+matching the scanner's warning policy. The algorithm's trend test still uses
+validated closed BTC candles; weak/downward conditions appear in the compact
+proposal and Details, and are refreshed during final validation. The coin's own
+1h uptrend, 15m setup, resistance, fees, liquidity and risk checks remain enforced.
+An active/unresolved trade is reported before algorithm analysis or manual input.
+UNI occupying the slot therefore still blocks a new LINK entry in every mode.
+The strategy identity is now `atr-structure-v2`; old algorithm proposals require
+a fresh calculation and approval. Existing protected trades retain recovery and
+their exchange OCOs.
 
 ## Features
 
@@ -20,3 +427,607 @@ Never upload API keys, Telegram tokens, or your .env file to GitHub.
 
 Codex is used to develop, review and test new features. Live trades must never be executed during development or automated testing.
 
+
+## Hardened development workflow
+
+Use Python 3.12 on Linux or Windows 11. Account locks use pinned `portalocker==3.2.0`
+(OS file locks on POSIX and Win32 locks on Windows). Install and validate offline
+on Linux:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-dev.txt -c requirements.lock
+PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m pytest -q
+.venv/bin/ruff check *.py tests
+.venv/bin/bandit -q *.py
+```
+
+On Windows 11, use PowerShell (no production credentials are needed for tests):
+
+```powershell
+py -3.12 -m venv .venv
+$env:PYYAML_FORCE_LIBYAML = "0"
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt -c requirements.lock
+$env:PYTHON_DOTENV_DISABLED = "1"
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m ruff format --check .
+```
+
+For **Command Prompt**, set the same build option with
+`set PYYAML_FORCE_LIBYAML=0` before installing development dependencies. PyYAML
+6.0.3 (required by Bandit) has no Python 3.15 wheel. This supported option builds
+its pure-Python implementation without Microsoft C++ Build Tools. It does not
+disable dependency checks, TLS verification, or any trading safety control.
+Only development tooling needs PyYAML; runtime dependencies already install normally.
+
+The Windows dependency `pywin32` is installed automatically through portalocker;
+the constraints snapshot pins version 312 on Windows only. Version 311 lacks
+Python 3.15 wheels and can cause a misleading dependency-conflict error on that
+interpreter. The version 312 wheel set includes CPython 3.12–3.15 on x86, x64 and
+ARM64. Native Python 3.15 execution is covered by the Windows CI job, not by the
+local Linux validation. Upgrade dependencies with the
+commands above rather than copying a Linux virtual environment onto Windows.
+
+`requirements.lock` records the exact packages used for validation; it is a constraints
+snapshot, not a hash-verified artifact lock. The Binance SDK is pinned to 1.0.37.
+Tests instantiate the actual SDK with synthetic credentials, intercept its API
+transport, and block sockets and Requests HTTP calls. Do not inject production
+credentials into test processes. `PYTHON_DOTENV_DISABLED=1` prevents loading `.env`.
+
+Defaults and fixed risk policy live in `safety.py`. `/setup` explicitly changes
+the two account-scoped entry limits; environment variables cannot silently raise them:
+
+| Setting | Automatic / scanner plan | Explicit manual override |
+| --- | --- | --- |
+| Exchange | Binance Spot only | Binance Spot only |
+| Minimum 24-hour quote volume | 10,000,000 USDT | Bypassed; low volume displayed as a warning |
+| Stop-distance and TP1 reward/risk | 1%-6% and at least 1.5R | User levels; strategy thresholds bypassed |
+| Spread and nearby order-book depth | Enforced | Thresholds bypassed; warnings displayed |
+| Planned trade risk | Up to 1% of available USDT, including reserved fees | Not limited to 1%; estimated stop loss shown before approval |
+| Maximum position | Configured cap including reserved buy commission; default 12 USDT | Same configured cap |
+| Maximum active bot trades | Configured count; default one. Uncertain/unprotected records block entries | Same configured count |
+| Daily loss threshold | 3 USDT, based on net realized bot P&L for the UTC day | Entry gate bypassed after explicit manual approval |
+| Authorization | Fresh, single-use Telegram approval | Fresh, single-use **MANUAL RISK OVERRIDE** approval |
+
+The original request specified 10 USDT; the user subsequently changed the position
+cap to **12 USDT**, now the default editable through `/setup`. The user later
+authorized parallel pairs and editable investment caps, retaining the normal
+1%/daily-loss policy and explicit manual exceptions. The entry point
+and selected policy are persisted in each new trade's plan and approved bounds.
+
+Choose **3 - Trading options → Manual** from a `/check` card, provide all four prices,
+and review the labeled override proposal. Selecting Manual or submitting levels
+does not itself place a buy. Trend/setup warnings do not block a manual plan.
+The bot uses the available balance up to the configured position cap for manual
+sizing instead of reducing size to the automatic risk budget. Automatic-only 5%
+balance reserve and extra minimum-notional padding are also omitted for manual
+plans; actual exchange minimums and commission-adjusted protective quantities
+are still checked. Losses from manual
+trades are still accounted for and therefore affect subsequent automatic entries.
+
+Manual override is not permission to ignore exchange validity or lose ownership
+tracking. Finite positive levels in valid order, entry-price drift bounds, symbol
+support, commissions, exchange quantity/price/notional restrictions, account
+identity, valid journals, sufficient funds, OCO protection and approval ceilings
+remain mandatory. If two valid protective OCO legs cannot fit within the configured cap,
+the trade is still skipped with an explanation. The bot never rounds quantity up
+to satisfy a minimum. Manual trades can exceed 1% risk and the automatic daily
+threshold; stop-market slippage can also exceed the displayed estimated loss.
+
+Entries use **price-capped LIMIT IOC orders**, rather than uncapped market buys, to
+bound entry price and quantity. Partial/expired entry fills are recorded, reconciled,
+and unwound conservatively. An IOC may expire without buying anything. Protective
+exits remain two exchange-linked OCOs with `LIMIT_MAKER` targets and `STOP_LOSS`
+market triggers. Original stops remain after TP1; there is no automatic breakeven
+cancel/replace. `/check`, manual levels and quiet 1/3/15-minute setup watches remain available.
+
+## Runtime and recovery contract
+
+No production setup or integration was performed as part of this change. Future
+explicitly authorized runtime operation requires separately configured Binance and
+Telegram credentials. Never put credentials in Git, issue text, logs, or test files.
+`USE_TESTNET` defaults to `true`; production mutations additionally require
+`ALLOW_LIVE_TRADING=true`. The application verifies the authenticated account's
+numeric UID and `SPOT` account type; it refuses to guess an identity if unavailable.
+
+Records are stored under `runtime_state/<testnet|live>/<account UID>/trades/`.
+Preserve this directory on durable storage. Every write intention and client ID is
+saved with file synchronization and atomic replacement before submission.
+POSIX additionally synchronizes the containing directory. Python does not support
+directory fsync on Windows: process-crash recovery is supported, but equal
+power-loss durability across filesystems/platforms is not guaranteed. On Windows,
+atomic replacement retries known access/sharing/lock errors (WinError 5, 32, 33)
+up to eight attempts with less than one second of total backoff. Persistent
+failures still propagate: the bot never truncates the old journal or submits a
+request whose intention could not be saved. This handles transient file access
+contention; it does not override permanent permissions. Account operation
+locks serialize entries, monitors, status reconciliation and kill operations on
+this filesystem. The process lock is released automatically after process death;
+never delete the lock file to unlock a running process. The live handle is held
+until the entire protected scope ends, and is closed even if explicit unlocking
+fails. Instance locks reject competitors immediately; operation locks wait for
+other processes and retain reentrant thread serialization. These locks do not coordinate
+separate machines or independent copies of the state directory.
+
+Legacy `state/` records are **not automatically migrated or ignored**: their
+presence blocks initialization until a separate manual reconciliation establishes
+ownership and account/environment identity. Do not delete journals to unblock a
+trade. Do not migrate an unresolved journal simply by renaming its directory.
+
+Recovery never creates a new buy. It queries persisted IDs, verifies symbol, side,
+quantity, order/list identity, protective levels and execution evidence, and resumes
+monitoring confirmed protection. Confirmed uncovered bot inventory may be unwound.
+Unknown acceptance, missing fills, invalid records and unconfirmed exits block
+new entries. Writes with unknown acceptance are not blindly retried, even if a
+subsequent lookup temporarily reports “not found.” Monitoring continues with
+bounded backoff after transient failures; manual action may still be necessary.
+
+Inventory calculations subtract verified sell fills and commissions from verified
+buy fills. Emergency exits also preserve the entire pre-entry base-asset balance,
+so unrelated holdings are not used to make an exit meet minimums. Use a dedicated
+Spot account/subaccount with no concurrent manual orders, transfers, withdrawals
+or other bots: external balance activity cannot be coordinated atomically.
+
+`/status` reports available USDT, active journal states, remaining bot quantities,
+and verified stop coverage (or explicitly UNKNOWN). `/cancel` invalidates pending
+proposals, manual entry, untriggered entry watches and scheduled rechecks; it does **not** cancel submitted
+orders or protective exits. Previously approved requests already in execution
+retain their durable recovery obligations.
+
+During separately authorized runtime operation, these CLI commands use the same
+account operation lock and can run while Telegram is active:
+
+```sh
+.venv/bin/python exit_manager.py status
+.venv/bin/python exit_manager.py kill --symbol FOOUSDT --confirm CLOSE_FOOUSDT
+```
+
+These are **authenticated runtime commands, not development smoke tests**. A kill
+reconciles ownership, journals cancellation, then unwinds each confirmed released
+leg before removing another stop. Cancel-and-sell cannot be atomic; a timeout,
+market halt, missing evidence or exchange minimum can leave residual exposure.
+
+Actual fill commissions and execution timestamps determine the journal's realized
+P&L. Base/USDT commissions are accounted directly. Optional BNB fee accounting
+records the actual BNB charged and first uses the last BNBUSDT aggregate trade
+at or before the fill (no more than one second earlier). If that verified query
+returns an empty list, v1.1.2 can instead use the high of the validated, fully
+closed one-minute candle containing the fill. Evidence and method are persisted
+with each fee. This is a defined USDT-equivalent reference valuation, **not a
+claim to reproduce Binance's private fee-conversion price exactly**. Candle-high
+valuation is conservative relative to observed trades in that minute, not a
+proven upper bound on Binance's private conversion or historical quotes. Missing or
+invalid reference data blocks completion/new entries, but does not delay placing
+protective OCOs or unwinding confirmed inventory. Unsupported other fee assets
+remain unresolved instead of being treated as zero. V1.6.0 retains proven
+below-quantity-step dust and its cost separately after closing tradable inventory.
+Residuals of at least one quantity step that fail order minimums, and histories
+reaching the 1,000-fill response limit, still block rather than silently truncating
+ownership or accounting evidence.
+
+See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the second review and remaining
+risks, and [TEST_RESULTS.md](TEST_RESULTS.md) for the regression mapping and results.
+
+
+## Binance timestamp error -1021
+
+A successful Windows/domain NTP resync does not prove the host clock agrees with
+Binance. Before authenticated access, the client samples the public Spot server
+time and sets the SDK's timestamp offset using the lowest-round-trip-time of
+three samples. The offset is cached for up to 30 seconds and invalidated on a
+wall-clock jump. This changes neither Windows time nor Binance's recvWindow.
+Samples taking over one second, malformed timestamps and clock jumps during
+sampling fail closed rather than guessing an offset.
+
+Account and order-status reads can resynchronize and retry once on -1021.
+Mutating requests are never automatically retried by this mechanism. An explicit
+timestamp rejection of a buy/OCO is journaled as rejected, so recovery cannot
+silently resubmit it; any later buy still needs a fresh approval. An unavailable
+public time service blocks authenticated initialization. No API key rotation is
+needed solely to correct a timestamp error. Persistent failures still require
+network/latency investigation; do not bypass timestamp checks or enlarge the
+request window to hide them.
+
+## Double-click LIVE launcher on Windows
+
+After installing dependencies and configuring this checkout's local `.env`,
+double-click **Start_Live_Bot.bat** in the project folder. Explorer opens it in
+Command Prompt. It switches to its own directory (including paths with spaces),
+activates `.venv\Scripts\activate.bat`, clears `PYTHON_DOTENV_DISABLED`, sets
+`USE_TESTNET=false`, `ALLOW_LIVE_TRADING=true`, and `AUTO_SCAN=true`, then starts
+`telegram_assistant.py` with unbuffered output. No keys/tokens are embedded or
+printed, and the script does not install packages, pull Git changes or merge.
+
+This is explicitly a real-money launcher. Telegram approval is still required for
+new buys; startup recovery can manage existing journaled positions. Keep the
+window open while running and use Ctrl+C to stop. Existing exchange orders remain
+at Binance. The window pauses after normal exit or startup failure so the result
+can be read. Missing `.venv`, bot file, or `.env` produces an actionable error
+instead of falling back to a different Python installation or checkout.
+
+Stop the old instance before launching. The account process lock still prevents
+duplicate instances. For desktop access, create a shortcut pointing to this batch
+file; do not move the batch file away from its checkout.
+
+
+## Candidate visibility and BNB Spot fees
+
+Add these non-secret settings to this checkout's existing `.env` and restart:
+
+```dotenv
+ALLOW_BNB_FEES=true
+```
+
+`ALLOW_BNB_FEES` defaults to false and enables the accounting support described
+above. It does not change Binance account settings or buy BNB. Keep the Binance
+Spot BNB fee-payment option enabled and sufficient BNB in the account if you want
+the exchange to apply its discount. The application reads the account/symbol
+commission endpoint: there is no hard-coded 25% discount or user-entered fee rate.
+Only standard commission receives the returned multiplier; tax/special components
+are not discounted. Sizing reserves the full undiscounted entry/stop taker and
+target maker rates so a BNB shortfall can fall back safely. Actual execution
+commissions, not the advertised estimate, determine journal accounting.
+
+A mixed BNB/USDT fallback across fills is supported. The active trade's BNB opt-in
+is journaled, so historical fee accounting can finish after restart even if the
+local flag later changes. Trading **BNBUSDT itself while BNB discounts are
+active remains blocked** pending a dedicated reserve for fees charged in the same
+base asset as the position. The bot will explain that edge case rather than risk
+selling unrelated BNB or incorrectly declaring inventory flat.
+
+Every scan names all candidate symbols in the console and reports each outcome:
+proposal sent, cooldown, validation refusal, API failure or Telegram delivery
+failure. From v1.9.0, background Telegram scanning sends only reviewable proposals;
+`/scanlog` exposes skip diagnostics on request. The former
+`SCAN_CANDIDATE_NOTIFICATIONS` toggle is ignored. Only successfully registered
+proposals start their alert cooldown. A candidate is not an order, and a proposal
+still requires your approval. No symbol can be recovered from an old count-only
+log line without other records.
+
+
+## Approval and actual execution outcomes
+
+Telegram approval authorizes an entry attempt; it does not establish a fill.
+Entries are price-capped LIMIT IOC orders. An accepted IOC can expire immediately
+with executed quantity zero if it cannot execute within its limit. No asset is
+acquired in that case, no protective exits are needed for that attempt, and the
+bot does not automatically retry the buy or change its price cap.
+
+The proposal acknowledgement now explicitly says execution is not yet confirmed.
+Subsequent messages distinguish NO BUY FILLED (including EXPIRED/REJECTED and
+executed quantity), partial-entry reconciliation, filled entries with verified
+remaining stop coverage, already-executed exits and incomplete coverage. Final
+approval-bound failures before submission are explicitly reported as NOT SUBMITTED.
+
+`/status` includes the latest saved entry's buy status, executed quantity, journal
+state and known Binance order ID even when there are no active positions. This
+is the latest journaled attempt, not necessarily the latest clicked proposal:
+validation failure before journaling may not create a new record. Use the order
+ID to compare with Binance history. Older rejected records may lack an API error
+code; new rejections persist only sanitized numeric API/HTTP metadata.
+
+A successful protection notification is a verified snapshot, not a guarantee that
+orders cannot subsequently fill, be canceled externally, or become unavailable.
+Unknown outcomes are never reported as zero fill merely because the balance looks
+unchanged. Confirmed zero-fill notifications do not offer an automatic retry.
+
+
+## Previous entry UI (superseded by v1.1.0 modes)
+
+Send `/check PARTI`, then choose **3 - Manual override**:
+
+- **Enter now:** type only `STOP TP1 TP2`. The proposal uses the current best ask
+  plus 0.2%, rounded up to one valid tick, as the **maximum buy price**. Approval
+  freezes that cap and the displayed maximum quantity, cost and estimated loss.
+  A higher ask requires a fresh proposal; lower prices cannot increase quantity.
+- **Now preset: SL -3%, TP +5%/+8%:** no level typing. Levels are based on a fresh
+  ask. These are optional manual levels, not a scanner recommendation. Review the
+  resulting prices, warnings and quantity, then explicitly approve or reject.
+- **Wait at my price:** type `ENTRY STOP TP1 TP2`. After approval the bot watches
+  locally for up to 15 minutes, polling roughly every 2 seconds plus API latency.
+  It submits one price-capped IOC when the ask reaches your entry and observed
+  bid/last remain above the stop. It places **no resting Binance buy** while waiting.
+
+For example, with PARTI at 0.0485 and levels
+`0.0480 0.0475 0.0490 0.0500`, Wait watches for ask <= 0.0480.
+An observed drop directly to 0.0465 cancels without buying. A stop breach between
+polls or after the last preflight check can still be missed. The watch therefore
+cannot guarantee that no fill ever occurs below the stop; confirmed fills retain
+existing OCO validation, emergency exit and durable recovery. Market exits can
+slip, fail or leave untradeable dust.
+
+`/status` identifies an armed watch; `/cancel` cancels it under the account lock.
+Restarting the bot or a failed monitoring read cancels an **untriggered** watch,
+because price movements during the interruption are unknown. Fresh approval is
+required. Submitted or uncertain orders are always reconciled, never canceled
+locally or retried as a new buy. Watches consume the one-active-trade slot. A
+zero-fill IOC is terminal and requires a new proposal; entries are never chased.
+The original automatic scanner entry behavior is retained.
+
+The 12 USDT cap including reserved fees, two valid protective OCO quantities and
+exchange minimums remain mandatory. Entry mode does not add exceptions to the
+already displayed manual risk override. A proposal expires after 5 minutes;
+an approved watch has its separate fixed 15-minute lifetime, which is not renewed.
+
+## View scanner candidates while a position is active
+
+Scanner summaries include candidate Entry, SL, TP1 and TP2 reference levels even
+when a position, cooldown or another validation prevents an executable proposal.
+These are labeled previews, with the blocking reason; they cannot bypass the
+configured active-trade limit or substitute for exchange-rounded order levels.
+
+Send **SHOW PR** (case insensitive) or **/showpr** to see the most recent proposal
+or candidate snapshot saved during this bot process. It includes the saved UTC
+time and is read-only: no order, approval button or renewed authorization is
+created. An empty scan preserves the previous snapshot. Restart clears the
+snapshot; `/check COIN` or a new scan supplies a fresh one. `/cancel` can invalidate
+a proposal while its historical snapshot remains viewable. Prices may be stale;
+use `/check COIN` and fresh approval when you can open another position.
+
+## Presentation and version
+
+The scanner and assistant share the NEXVANT identity, current version, “Concept &
+Developed by Fazil,” and the GitHub repository URL from `branding.py`. The first
+tracked display version was 1.0.0; NEXVANT branding begins at 1.5.0. Display
+versions do not claim that a Git release/tag has been published. Full identity
+appears in startup; routine trading messages retain compact formatting without
+repeating the author/Git block. Telegram uses a blue ticker marker and a status marker
+(amber for waiting/cooldown, red for blocked/canceled). Text labels always explain
+the state. Telegram does not support arbitrary text colors. Markers are visual
+cues, not safety ratings or permission to trade. Order logic is unchanged.
+
+The assistant starts with the shared NEXVANT identity and a readiness sequence:
+scanner module readiness, verified exchange initialization, instance
+lock, recovery pass, then Telegram readiness. Each success line follows the
+corresponding operation; no artificial loading delays are added. Scanner module
+readiness does not mean the first market scan is finished, and a completed
+recovery pass can still report unresolved records requiring continued monitoring.
+
+## Compact proposal cards and help
+
+The main Telegram proposal shows ticker, manual/automated type, entry mode, maximum
+buy price, SL, TP1/TP2, size/cost, estimated total profit at both targets and
+estimated loss at the initial stop. It retains the live-money label, manual risk
+exceptions, hard limits, original-stop behavior and slippage warning. **Details**
+opens the full original assumptions, scanner warnings, BNB fee information and
+specific overridden checks. Viewing Details never consumes or renews approval and
+never submits an order; expired/canceled proposals cannot be revived this way.
+
+The profit estimate credits only the two fee-reserved exit quantities at their
+target prices, reserves full exit fees and subtracts the entire entry cost with
+its fee reserve. This conservative scenario ignores leftover/dust proceeds and
+BNB discount savings. It is not realized P&L or a guaranteed profit; actual fills,
+fees, partial exits and slippage differ. The stop estimate describes the initial
+full-position stop scenario; TP1 followed by a stop has a different outcome.
+
+`/help` and `/start` list every supported command: `/check` (including direct
+coin arguments and `/check_ticker` / `/check-ticker` aliases), `/status`, `/showpr`
+/ `SHOW PR`, `/cancel`, `/help` and `/start`. They also explain proposal buttons
+and manual-entry modes. `/cancel` does not close active positions or cancel OCOs.
+
+## Exit results in Telegram
+
+Verified sells produce a short result message. A partial exit reports realized
+profit/loss so far and remaining bot quantity; **TRADE CLOSED** is sent only after
+all bot inventory is zero, all orders terminal, and execution/commission accounting
+is verified. Net P&L is shown in USDT and as a percentage of **actual total entry
+cost including entry fees**, not account balance or the proposal's estimate.
+Targets, stops and emergency closes use actual fills. Partial BNB results can stay
+pending valuation; final BNB results identify the existing fill-time USDT reference
+method, not an exact Binance internal conversion.
+
+Notifications are saved before delivery, with failed Telegram deliveries retried
+about every 30 seconds while the assistant runs and after restart. A completed
+trade stays closed even if Telegram is unavailable. Delivery is at least once:
+a crash after Telegram accepts a message but before its acknowledgement is saved
+can produce a duplicate with the same trade reference. Newer execution snapshots
+supersede undelivered older ones. Reporting never retries or creates an order.
+
+On-request candidate previews use one compact card: “Potential Token Detected,”
+ticker, current status, rejection/cooldown reason, and Entry/SL/TP1/TP2 on separate
+lines. They retain the preview-only notice and market warning. Repeated identity,
+mode banners and author/Git footers are omitted from routine cards. Full identity
+remains in startup output. SHOW PR uses the same compact candidate snapshot only
+when no delivered proposal is available. V1.9.0 removes these previews from
+background Telegram delivery. Console diagnostics and execution policy are unchanged.
+
+## Startup-only identity and execution narration
+
+The assistant's startup welcome contains the full branding, Git URL and live/testnet
+mode notice. Routine proposals, Details, check cards, candidate alerts, /status and
+exit reports omit repeated identity/mode headers. Console startup still identifies
+the environment. The standalone alert-only scanner also keeps branding in its
+startup announcement rather than every candidate. Existing Telegram history is
+not edited; these formats apply to new messages after updating and restarting.
+
+Exit reports identify verified Take Profit-1, Take Profit-2 or stop-loss fills,
+and distinguish partial fills from completed order execution. Confirmed recovery
+market sells are never relabeled as target hits. New recovery intentions save
+whether they were an explicit position close or an exit of unprotected inventory;
+the latter is reported as an emergency exit. Older records without that reason
+retain a generic recovery-sale label where the cause is unknown. The old generic
+“Emergency exit reconciled” Telegram alert is removed in favor of the verified
+result report, preserving pending fee valuation and remaining-position information.
+Pending, undelivered result messages adopt the new format on retry.
+
+Startup wording now uses **Live Spot** or **Spot Testnet** as the environment name,
+including the welcome, Windows window title and console initialization. The
+“REAL MONEY” / “fake money” wording is retired. The welcome reports NEXVANT online,
+scan cadence, required order approval and the primary commands. Launcher/startup
+messages distinguish module readiness, verified exchange connection, account lock,
+position reconciliation and Telegram availability. No connection, scan, order or
+configuration logic was changed; these are presentation changes only.
+
+The approved startup status is now shared by the Telegram welcome and final
+console readiness message:
+
+```text
+Connected to Binance Spot
+Market scanning: Active
+Trade execution: Requires Telegram approval
+```
+
+Testnet explicitly says “Binance Spot Testnet.” With automatic scanning off, the
+status instead says “Disabled — use /check.” Connection text is reached only
+after exchange initialization; these labels do not change trade authorization.
+
+The manual-entry screen now starts with a choice rather than asking for four
+numbers immediately: **Use current price**, **Wait for my price**, or **Use preset
+levels (-3%, +5%, +8%)**. After selecting a custom mode, a short prompt explains
+STOP and TP1/TP2 and requests only the three or four prices that mode needs, with
+an explicitly illustrative format example. Four-number direct entry remains
+compatible with the existing watch flow. Presets remain human-approved example
+levels, not a trading recommendation. Final manual-risk disclosures and explicit
+approval are preserved; buttons alone never authorize a purchase.
+
+## Zero quantity with needs_attention (v1.1.1 diagnostics)
+
+No open exchange orders and zero recorded bot inventory do not by themselves
+finalize a trade. Recovery still verifies terminal orders, execution history and
+commission valuation before closing the journal and calculating daily realized
+loss. Missing historical BNB reference data is one possible accounting blocker;
+this state does not authorize selling more coins, assuming zero fees or resetting
+state. Never delete a journal to bypass the gate.
+
+After a recovery failure, `/status` now identifies zero bot quantity separately
+from unfinished accounting and displays a fixed diagnostic reason when available:
+BNB reference missing/truncated/invalid, unsupported fee valuation, execution
+history incomplete/truncated, or totals/state mismatch. Monitor messages expose
+only approved fixed reasons and numeric API metadata, never raw exception text or
+credentials. Status formats zero normally rather than as `0E-8`.
+
+These diagnostics do not widen the existing 1-second BNB valuation policy or
+force a trade closed. When valid evidence becomes available, normal recovery
+finishes accounting and delivers the final net result. A generic diagnostic still
+requires investigation; no live cause is inferred solely from the account balance.
+
+
+## Historical BNB fee fallback (v1.1.2)
+
+A legitimate fill can have no BNBUSDT aggregate trade in its preceding one-second
+window. That absence previously stranded a fully exited trade in accounting.
+The fix retains the original reference when available; only a successfully read,
+empty aggregate-trade list enables a second public-data source:
+
+- Query BNBUSDT `get_klines(interval="1m", startTime=minute_start,
+  endTime=minute_end, limit=1)` for the fee's containing UTC minute.
+- Verify the candle is closed against Binance server time, its exact boundaries,
+  positive/consistent OHLC, positive volumes and a positive trade count.
+- Charge the actual BNB commission quantity at that minute's **high**, recording
+  the source OHLCV, boundaries, trade count, observation time and method. Final
+  P&L and its percentage are explicitly reference-valued when this is used.
+
+This is an accounting lookup, not a buy/sell action or retrospective strategy
+signal. Completed-minute data after a fill is used solely for fee valuation.
+Timeouts, malformed/truncated trade responses, open candles and missing/invalid
+candle data do not become zero fees or permission to trade. Existing persisted
+references retain their original values; old and new methods can coexist. Replay
+validates the stored evidence without revaluing at today's BNB price. There is no
+state deletion or forced journal closure. A still-open fill minute may delay
+finalization for up to its close plus normal API/retry latency.
+
+The new method needs v1.1.2 to replay. Older versions that cannot interpret a saved
+candle reference will fail closed; do not remove that evidence to downgrade.
+
+## Scanner target rounding and rejection context (v1.1.3)
+
+Scanner candidates place TP1 exactly at 1.5R before exchange rounding. Previously,
+flooring both a structural stop and generated target could drop the executable
+ratio below 1.5R even at the original entry. New scanner signals carry an explicit
+generated-target policy. During initial planning, the rounded stop and ORIGINAL
+signal entry define 1.5R/2.5R targets, rounded up to the next valid tick. Pullback
+TP1 cannot exceed the signal's observed resistance ceiling. Source reference
+prices in the candidate preview can therefore differ slightly from final,
+exchange-valid prices in the approval card.
+
+This does not chase a higher live quote or raise targets entered by a user. An
+unmarked/manual signal retains its supplied exits. Approved plan exits are fixed;
+final revalidation cannot silently change them. A newer entry that genuinely
+reduces reward/risk below 1.5 still rejects. Stop-distance and TP1 reward failures
+now have separate messages, including the checked entry/SL/TP1, required TP1 and
+original signal entry, rather than a combined ambiguous refusal. The 1%–6% stop
+range and 1.5R minimum are unchanged.
+
+A delivered scan proposal has Approve / Reject / Details buttons. V1.9.0 removes
+its duplicate candidate summary; `/scanlog` shows delivery status on request.
+The three Manual / Assisted / Auto Setup
+choices are opened through `/check COIN` → `3 - Trading options`; they are not
+buttons on the automatic scanner proposal. No passing candidate buys on its own.
+
+## Ticker-only checks and /scan alias (v1.1.4)
+
+`/scan ZRO` and `/check ZRO` both analyze **ZROUSDT**. The existing ticker parser
+adds USDT when absent and preserves an existing suffix: `ZROUSDT` and `ZRO/USDT`
+also resolve to ZROUSDT. Send `/scan` or `/check` alone to receive a ticker prompt,
+then reply with just the coin name. `/scan` is a single-coin check alias, not a
+command to buy or trigger a full-universe background scan. `/help` documents it.
+Authorization, USDT-only Spot validation, market checks, approval requirements and
+position limits are unchanged. `/cancel` clears a pending ticker prompt.
+
+## Chart setup versus executable proposal (v1.1.5)
+
+The `/check` / `/scan` chart card now says **Setup found — execution checks
+pending**, uses an amber marker and offers **Review live plan**. Its displayed
+price is a reference snapshot, not a locked quote or safety guarantee. Both the
+background scanner and an on-demand scanner-plan request use the same normal
+risk planner; running a scan manually does not enable the Manual risk override.
+
+For example, entry 6.998, stop 6.916 and TP1 7.114 yield approximately 1.4146R,
+which correctly fails 1.5R. A later entry of 6.995 with the same stop/target yields
+about 1.5063R and can pass if the other checks also pass. Changing quotes, account
+state, fees or filters may therefore change eligibility between requests. Only
+explicitly choosing Manual mode enables its separately disclosed exceptions.
+The proposal and final pre-submission checks still bind price, quantity, cost,
+exit levels and risk and require Telegram approval. No risk threshold changed.
+
+## Clickable Spot tickers and active-pair reasons (v1.1.6)
+
+Telegram tickers such as UNIUSDT and UNI/USDT link directly to
+`https://www.binance.com/en-AE/trade/UNI_USDT?type=spot`. This uses Telegram
+text-link entities with UTF-16 offsets, preserving the compact visible text and
+existing buttons; no HTML/Markdown mode is enabled. Link previews are disabled.
+Multiple candidates link to their respective pairs, including the existing pair
+mentioned as a blocker. Check/status/result messages and edited proposals retain
+links. Asset paths are validated/encoded on the fixed Binance host. Clicking a
+link opens the Spot page; it never authorizes a bot order.
+
+The same one-active/unresolved-trade gate now explains what occupies the slot:
+
+- Same pair with a recorded active position: “UNIUSDT trade already in progress;
+  duplicate entry blocked.”
+- Another pair requested while UNI is active: “UNIUSDT trade is in progress;
+  only one active trade is allowed.”
+- An armed entry watch: explicitly waiting on that existing watch.
+- An unresolved or flat-unaccounted record: explicitly awaiting reconciliation.
+- An entry intent awaiting confirmation: explicitly pending, not claimed filled.
+
+A proposal alone is not described as an active position. No state is cleared and
+no risk/ownership/duplicate-instance or approval check is weakened. Typed
+`ActiveTradeError` remains a ValueError for existing handlers; regressions assert
+the gate itself instead of depending on the retired generic wording.
+
+## Cancel controls and restart with a position open (v1.1.7)
+
+Telegram message edits explicitly remove consumed keyboards. Opening Trading
+options retires the original check controls and tracks the new menu's own message
+ID. Cancel, expiry and successful proposal creation retire that current selector;
+replayed callbacks from replaced/expired menus cannot initiate another plan.
+Global `/cancel` invalidates local inputs, selections and approvals before editing
+their messages. Expiry also clears the associated input form. A Telegram edit
+failure can leave old buttons visually cached, but their backend actions remain
+invalid; another press attempts keyboard cleanup. Pending proposal Details remains
+read-only and does not consume its valid approval buttons.
+
+The preview heading is **Potential Token Detected**. From v1.9.0 it appears only
+on an explicitly requested candidate snapshot. Symbols remain USDT pairs.
+
+Updating code does not delete the ignored `runtime_state` journals. With a filled
+trade open, stop the assistant in CMD using Ctrl+C, wait for shutdown, then pull
+and test. Existing OCO orders continue on Binance, while local monitoring/recovery
+pauses. Restart from the same checkout with the same account/environment and keep
+`runtime_state` unchanged. The bot loads saved order/client IDs and execution
+records and reconciles what actually happened, including exits filled while it was
+offline. It does not repeat the original buy. Pending unapproved proposals/forms
+are process-local, and untriggered entry watches are canceled on restart under
+the existing policy. You do not need to close the Telegram app or cancel OCOs.

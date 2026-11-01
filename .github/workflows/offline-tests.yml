@@ -1,0 +1,41 @@
+name: Offline tests (Windows and Linux)
+on:
+  push:
+    branches: [security/spot-lifecycle-hardening]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: "3.12"
+          - os: windows-latest
+            python: "3.12"
+          - os: windows-latest
+            python: "3.15"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      # PyYAML has no CPython 3.15 wheel; use its supported pure-Python
+      # implementation when a source build is needed, without C++ tooling.
+      PYYAML_FORCE_LIBYAML: "0"
+      PYTHON_DOTENV_DISABLED: "1"
+      USE_TESTNET: "true"
+      ALLOW_LIVE_TRADING: "false"
+      AUTO_SCAN: "false"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -r requirements-dev.txt -c requirements.lock
+      - run: python -m pytest -q
+      - run: python -m ruff check .
+      - run: python -m ruff format --check .
