@@ -2,6 +2,7 @@
 NEXVANT: Telegram scanner proposals + on-demand /check + manual entry
 -------------------------------------------------------------------------------
 A) AUTOMATIC: scans Binance every 15 min and sends proposals with [Approve] [Reject] buttons.
+   A separate minute-based momentum watch sends observation cards with watch actions.
 B) ON DEMAND: send /check (or /check_ticker or /check-ticker) -> it asks for the pair
    (e.g. BTC/USDT) -> it checks the coin and replies with a status:
        SETUP FOUND -> Review live plan | Watch 1/3/15 min | Trading options | Ignore
@@ -21,7 +22,8 @@ Safeguards (apply to ALL paths, including manual):
   - If protection fails, confirmed bot-owned free inventory is reconciled before an exit attempt
 
 Other commands: /discover  /status  /cancel  /help
-Env extras: AUTO_SCAN=false  -> disable automatic proposals (keep only /check)
+Env extras: AUTO_SCAN=false disables automatic proposals and momentum discovery.
+MOMENTUM_ALERTS=false starts momentum notifications muted; /momentum on enables them.
 
 Files needed in the SAME folder: entry_scanner.py, exit_manager.py, trade_assistant.py,
 telegram_assistant.py, .env
@@ -46,6 +48,7 @@ import entry_readiness as readiness
 import entry_scanner as sc
 import exit_manager as em
 import market_discovery as discovery
+import momentum_watch as momentum
 import portfolio_reporting
 import position_manager as positions
 import runtime_health
@@ -63,6 +66,8 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 APPROVAL_TTL = int(os.getenv("APPROVAL_TTL_SECONDS", "300"))
 CHECK_TTL = int(os.getenv("CHECK_TTL_SECONDS", "600"))
 AUTO_SCAN = os.getenv("AUTO_SCAN", "true").lower() == "true"
+MOMENTUM_ALERTS = os.getenv("MOMENTUM_ALERTS", "true").lower() == "true"
+momentum_enabled = MOMENTUM_ALERTS
 API = f"https://api.telegram.org/bot{TOKEN}"
 
 last_preview = {}  # read-only snapshot for SHOW PR; never an approval source
@@ -92,6 +97,7 @@ HELP = (
     "Full pairs such as ZROUSDT or ZRO/USDT also work.\n"
     "/check_ticker or /check-ticker — aliases for /check\n"
     "/scanlog — view the last automatic scan and skipped pairs on request\n"
+    "/momentum — early movement alert status; /momentum on or off for this session\n"
     "/status — balance, bot positions, stop coverage and entry watches\n"
     "/health — exchange checks, monitoring and entry blockers\n"
     "/position or /positions — numbered bot positions, details and confirmed exit\n"
@@ -737,10 +743,10 @@ def check_text(res, title, problem=None):
     return "\n".join(lines)
 
 
-def send_check_card(res, title="CHECK", generation=None, *, problem=None):
+def send_check_card(res, title="CHECK", generation=None, *, problem=None, text=None):
     cid = uuid.uuid4().hex
     generation = proposal_generation if generation is None else generation
-    text = check_text(res, title, problem)
+    text = check_text(res, title, problem) if text is None else text
     kb = check_controls(cid, res, problem)
     r = say(text, reply_markup=json.dumps(kb))
     if r.get("ok"):
@@ -1768,7 +1774,7 @@ def handle_callback(cb):
 
 
 def handle_message(msg):
-    global proposal_generation
+    global proposal_generation, momentum_enabled
     if str(msg.get("chat", {}).get("id")) != str(CHAT_ID) or str(
         msg.get("from", {}).get("id")
     ) != str(CHAT_ID):
@@ -1792,6 +1798,22 @@ def handle_message(msg):
         say(HELP)
     elif command == "/scanlog":
         show_scan_log()
+    elif command == "/momentum":
+        parts = low.split()
+        if len(parts) == 2 and parts[1] in ("on", "off"):
+            momentum_enabled = parts[1] == "on"
+        elif len(parts) > 1:
+            say("Use /momentum, /momentum on or /momentum off.")
+            return
+        say(
+            f"Early momentum alerts: {'ON' if momentum_enabled else 'OFF'} for this session.\n"
+            + ("Automatic scanning is disabled; alerts cannot run.\n" if not AUTO_SCAN else "")
+            + "Watches price movement each minute; needs at least 5 minutes of fresh samples after startup or a data gap.\n"
+            "Triggers: 2% in 5m, 3% in 15m, or crossing +8% in rolling 24h. All require closed-candle confirmation and at least 2x volume.\n"
+            "At most 3 alerts per 15 minutes; each pair at most once in 4 hours.\n"
+            "These are watch opportunities, not approved trades. Existing requested watches continue.\n"
+            "Use /momentum on or /momentum off. Restart restores MOMENTUM_ALERTS (default ON)."
+        )
     elif command == "/health":
         try:
             report = bot_health.report(auto_scan=AUTO_SCAN)
@@ -2643,6 +2665,84 @@ def scan_once():
     return results
 
 
+def send_momentum_alert(signal, generation):
+    """An observation card can only navigate to existing fresh validation paths."""
+    symbol = signal["symbol"]
+    reasons = ["Momentum detected; entry setup, funding and risk have not been validated."]
+    if signal["chg"] > sc.MAX_24H_PUMP:
+        reasons.append("Above the current +25% automatic-entry limit; this is discovery only.")
+    if signal["qv"] < sc.MIN_QUOTE_VOLUME:
+        reasons.append("Below the current $10M automatic-entry volume minimum.")
+    if signal["chg"] < sc.MAX_24H_DUMP:
+        reasons.append("Below the current -15% automatic-entry limit.")
+    text = (
+        f"⚡ Early momentum — {symbol[:-4]}/USDT\n\n"
+        f"Price: {signal['change5']:+.1f}% in 5m | {signal['change15']:+.1f}% in 15m\n"
+        + ("Rolling 24h gain crossed +8%.\n" if signal.get("daily_cross") else "")
+        + f"Volume: {signal['relative_volume']:.1f}× the preceding average\n"
+        f"Last 15m traded: ${signal['recent_volume']:,.0f}\n"
+        f"24h change: {signal['chg']:+.1f}% | volume: ${signal['qv'] / 1e6:.1f}M\n"
+        f"Last closed 5m price: {sc.fmt(signal['price'])}\n\n"
+        "An unusual move is developing. It may reverse; no entry is approved.\n"
+        + "\n".join(reasons[1:])
+        + "\n\nWatch for a valid setup, check trading options, or ignore. "
+        "Watching cannot buy; any later trade needs fresh checks and your approval.\n"
+        "Mute early alerts: /momentum off"
+    )
+    res = dict(
+        symbol=symbol,
+        price=signal["price"],
+        chg=signal["chg"],
+        qv=signal["qv"],
+        sig=None,
+        status="WARNING",
+        reasons=reasons,
+        note="Volume compares the last three closed 5m candles with the preceding twenty. "
+        "Momentum discovery does not validate the trading setup or BTC trend.",
+    )
+    return send_check_card(res, generation=generation, text=text)
+
+
+def momentum_once(watch):
+    generation = proposal_generation
+    signals = watch.scan(time.monotonic(), int(time.time() * 1000), em.STOP.is_set)
+    for signal in signals:
+        if em.STOP.is_set() or not momentum_enabled or generation != proposal_generation:
+            break
+        now = time.monotonic()
+        if not watch.can_notify(signal["symbol"], now):
+            continue
+        # Never send a stale snapshot after slow network reads.
+        if not 0 <= time.time() * 1000 - signal["closed_at"] <= 330_000:
+            continue
+        with pend_lock:
+            already_watching = any(w["symbol"] == signal["symbol"] for w in setup_watches.values())
+        if already_watching or pending_pair(signal["symbol"]):
+            continue
+        watch.attempted(signal["symbol"], now)
+        cid = send_momentum_alert(signal, generation)
+        sc.log.info(
+            "Momentum %s: %s",
+            signal["symbol"],
+            "alert sent" if cid else "delivery unconfirmed; cooldown retained",
+        )
+
+
+def momentum_loop():
+    watch = momentum.MomentumWatch()
+    with runtime_health.worker("momentum") as observation:
+        while not em.STOP.is_set():
+            if momentum_enabled:
+                observation.attempt()
+                try:
+                    momentum_once(watch)
+                    observation.success()
+                except Exception as error:
+                    observation.failure(error)
+                    sc.log.warning("Momentum scan: %s", safe(error))
+            em.STOP.wait(momentum.POLL_SECONDS)
+
+
 def scanner_loop():
     with runtime_health.worker("scanner") as observation:
         while not em.STOP.is_set():
@@ -2659,7 +2759,8 @@ def scanner_loop():
 def startup_status():
     connection = "Connected to Binance Spot" + ("" if ta.LIVE else " Testnet")
     scanning = "Active" if AUTO_SCAN else "Disabled — use /check"
-    return f"{connection}\nMarket scanning: {scanning}\nTrade execution: Requires Telegram approval"
+    alerts = "ON" if AUTO_SCAN and momentum_enabled else "OFF"
+    return f"{connection}\nMarket scanning: {scanning}\nEarly momentum alerts: {alerts} (/momentum)\nTrade execution: Requires Telegram approval"
 
 
 def startup_text():
@@ -2699,7 +2800,7 @@ def _run_main():
     print("=" * 60)
     print(" Trading configuration")
     print(
-        f" BNB fee accounting: {'ON' if em.ALLOW_BNB_FEES else 'OFF'} | automatic scan alerts: approval proposals only"
+        f" BNB fee accounting: {'ON' if em.ALLOW_BNB_FEES else 'OFF'} | trade scanner: approval proposals only; momentum: separate watch alerts"
     )
     print(
         f" Auto risk {sc.RISK_PCT}% | auto daily loss limit ${em.MAX_DAILY_LOSS_USD} | "
@@ -2743,6 +2844,7 @@ def _run_main():
     start_managed_worker(em.result_notice_loop)
     if AUTO_SCAN:
         start_managed_worker(scanner_loop)
+        start_managed_worker(momentum_loop)
     print(startup_status(), flush=True)
 
     while not em.STOP.is_set():
@@ -2826,7 +2928,7 @@ def prompt_parallel_count():
 
 
 def main():
-    global proposal_generation
+    global proposal_generation, momentum_enabled
     if not TOKEN or not CHAT_ID:
         raise SystemExit("Telegram configuration missing")
     print(BRANDING, flush=True)
@@ -2835,6 +2937,7 @@ def main():
     if parallel_count is None:
         return
     em.STOP.clear()
+    momentum_enabled = MOMENTUM_ALERTS
     with pend_lock:
         proposal_generation += 1
         for watch in setup_watches.values():

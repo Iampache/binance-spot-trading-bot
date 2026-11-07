@@ -340,6 +340,12 @@ def _build_plan(sig, *, approved_bounds=None, watch_id=None):
     balance = em.D(c.get_asset_balance(asset="USDT")["free"]) - watch_reserve
     if balance <= 0:
         raise ValueError("No available USDT")
+    if approved_bounds is not None and em.D(approved_bounds["cost"]) > balance:
+        raise ValueError(
+            f"Insufficient available funds: approved investment including fee reserve needs "
+            f"{em.D(approved_bounds['cost']):.4f} USDT; spendable balance after reservations "
+            f"is {balance:.4f} USDT. No new buy placed. Add funds or request a smaller proposal."
+        )
     fee_schedule = em.commission_schedule(symbol)
     fee = fee_schedule["reserve_rate"]
     daily_loss = em.todays_loss(watch_id=watch_id) if watch_id is not None else em.todays_loss()
@@ -499,6 +505,12 @@ def execute(plan, *, approval=None, monitor=True):
             if sig["entry_mode"] != "legacy"
             else build_plan(sig)
         )
+        if em.D(plan["cost"]) > fresh["balance"]:
+            raise ValueError(
+                f"Insufficient available funds: approved investment including fees needs "
+                f"{em.D(plan['cost']):.4f} USDT; spendable balance is {fresh['balance']:.4f} USDT. "
+                "No new buy placed. Add funds or request a smaller proposal."
+            )
         if not approval_bounds(approval, fresh):
             raise PlanChangedError("Market/risk changed; send a new proposal for approval")
         plan = fresh

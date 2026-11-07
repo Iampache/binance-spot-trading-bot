@@ -719,12 +719,51 @@ selling unrelated BNB or incorrectly declaring inventory flat.
 
 Every scan names all candidate symbols in the console and reports each outcome:
 proposal sent, cooldown, validation refusal, API failure or Telegram delivery
-failure. From v1.9.0, background Telegram scanning sends only reviewable proposals;
+failure. From v1.9.0, the trade-setup scanner sends only reviewable proposals;
 `/scanlog` exposes skip diagnostics on request. The former
 `SCAN_CANDIDATE_NOTIFICATIONS` toggle is ignored. Only successfully registered
 proposals start their alert cooldown. A candidate is not an order, and a proposal
 still requires your approval. No symbol can be recovered from an old count-only
 log line without other records.
+
+### Early momentum notifications
+
+The Telegram assistant also has a separate, read-only momentum watch, enabled
+with automatic scanning by default. It sends **⚡ Early momentum** cards with
+Watch 1/3/15 min, Trading options, Details, Check again and Ignore buttons.
+These alerts identify unusual movement; they are not trade proposals or buy
+recommendations. No funds or trade slots are reserved. Existing strategy,
+liquidity, risk and approval checks still apply when requesting an entry.
+
+- Public USDT Spot markets must be active and support the bot's protective order
+  types. Stablecoins and leveraged-token suffixes are excluded.
+- Markets with at least **$1M rolling 24-hour quote volume** are sampled roughly
+  every minute. Discovery has no top-100 cutoff or maximum 24-hour gain filter.
+- A sampled rise of **2% over 5 minutes or 3% over 15 minutes** triggers candle
+  inspection. Up to eight of the strongest sampled movers are inspected per cycle.
+- An alert also requires that rise in **closed 5-minute candles**, at least
+  **$100,000 quote volume over the last three closed candles**, and at least
+  **2× average quote volume** compared with the preceding twenty 5-minute candles.
+  Missing, stale, malformed and unfinished candle data cannot establish a signal.
+- At most **three alert attempts per rolling 15 minutes**, and **one per pair
+  every four hours**. Failed/uncertain Telegram sends retain the cooldown to avoid
+  duplicate retry notifications. Pairs with a pending proposal or requested setup
+  watch are suppressed. Strongest sampled price movers are considered first;
+  alerts beyond the budget are skipped rather than queued as stale opportunities.
+
+`/momentum` explains the status and rules. `/momentum off` mutes these alerts for
+the session; `/momentum on` restores them. Existing user-requested watches and
+trade proposals continue. Set `MOMENTUM_ALERTS=false` to start muted on subsequent
+runs. `AUTO_SCAN=false` disables both automatic workers. The standalone
+`entry_scanner.py` command retains its original behavior.
+
+Warmup requires at least five minutes of fresh samples after startup, re-enabling
+after a long pause, or a data gap. Samples and cooldowns are session-local and reset
+on restart. Polling, closed-candle confirmation, liquidity filters and alert budgets
+can miss moves. These initial thresholds have offline correctness tests, not a
+demonstrated profitable backtest. A daily gain above 25% or volume below $10M may
+qualify for a momentum alert while remaining ineligible for a normal trade setup;
+the card explicitly explains those restrictions.
 
 
 ## Approval and actual execution outcomes
@@ -1072,3 +1111,57 @@ records and reconciles what actually happened, including exits filled while it w
 offline. It does not repeat the original buy. Pending unapproved proposals/forms
 are process-local, and untriggered entry watches are canceled on restart under
 the existing policy. You do not need to close the Telegram app or cancel OCOs.
+
+The momentum watch also detects a newly observed crossing from below **+8% to
+at least +8% rolling 24-hour gain**, without waiting for the short-term percentage
+thresholds. It still requires positive closed-candle returns over both 5 and 15
+minutes and the same volume confirmation. A first startup sample already above
+8% does not count as a crossing. Crossings missed during an outage are not
+reconstructed. The normal +25% entry exclusion is unchanged.
+
+An approved investment that exceeds the refreshed spendable balance is blocked
+with an insufficient-funds explanation instead of being silently downsized.
+Investment caps remain maxima when initially preparing a proposal; fees and
+entry-watch reservations are included in funding checks.
+
+## Linux / Oracle launcher
+
+Run `./bot-loader.sh` from a terminal to start or reconnect to NEXVANT in tmux.
+The script locates its own installation and uses `.venv/bin/python`; install the
+Python requirements first. On Ubuntu, install tmux with `sudo apt install tmux`.
+If necessary after copying the script, run `chmod 700 bot-loader.sh`.
+
+For a new installation:
+
+```bash
+umask 077
+cp .env.example .env
+chmod 600 .env
+nano .env
+./bot-loader.sh
+```
+
+Do not copy the template over an existing `.env`. Enter your own `API_KEY`,
+`API_SECRET`, `TELEGRAM_TOKEN` and positive private `TELEGRAM_CHAT_ID` locally.
+The launcher checks presence and basic configuration; Binance and Telegram verify
+actual credentials during normal bot startup. It never prints credential values
+or sources `.env` as shell code. `.env` and `runtime_state/` remain ignored by Git.
+
+The Linux launcher uses `.env` as the authority for supported settings, overriding
+inherited shell/tmux values. Missing mode settings default to Testnet with live
+trading disabled. **Existing Live deployments must explicitly save
+`USE_TESTNET=false` and `ALLOW_LIVE_TRADING=true` in their `.env`**, with their Live
+credentials. It does not migrate records or switch API keys automatically. The
+existing Windows Live launcher retains its explicit Live behavior.
+
+The tmux session name is derived from the installation path. Subsequent launches
+attach to that same session. The bot's existing account lock remains responsible
+for preventing concurrent processes using the same account state directory; this
+does not coordinate separate laptops or independent installations. Stop a bot
+started using the earlier ad hoc launcher before using this one.
+
+Choose the parallel-trade count at startup. **Ctrl+B, release, then D** detaches
+while the bot runs; **Ctrl+C** stops the bot. After shutdown or a startup error,
+the pane retains the exit message: press Enter to close it, then rerun the loader.
+It does not automatically restart after a crash or VM reboot. No new dependencies,
+Git pull, or production deployment are performed by the launcher.

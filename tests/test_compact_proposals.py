@@ -125,14 +125,17 @@ def test_identity_is_only_in_startup_not_routine_telegram_output(sim, monkeypatc
     assert "Market scanning:" in startup
     assert "REAL MONEY" not in startup and "fake money" not in startup
     monkeypatch.setattr(tg, "AUTO_SCAN", True)
+    monkeypatch.setattr(tg, "momentum_enabled", True)
     monkeypatch.setattr(ta, "LIVE", True)
     assert tg.startup_status() == (
         "Connected to Binance Spot\nMarket scanning: Active\n"
+        "Early momentum alerts: ON (/momentum)\n"
         "Trade execution: Requires Telegram approval"
     )
     monkeypatch.setattr(tg, "AUTO_SCAN", False)
     monkeypatch.setattr(ta, "LIVE", False)
     assert "Market scanning: Disabled" in tg.startup_status()
+    assert "Early momentum alerts: OFF" in tg.startup_status()
     assert "Connected to Binance Spot Testnet" in tg.startup_status()
     messages = []
     monkeypatch.setattr(tg, "say", lambda text, **kw: messages.append(text))

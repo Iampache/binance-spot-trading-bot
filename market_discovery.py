@@ -9,10 +9,8 @@ from telegram_formatting import spot_url
 REQUIRED_TYPES = {"LIMIT", "MARKET", "LIMIT_MAKER", "STOP_LOSS"}
 
 
-def rank_pairs(category, limit=5):
-    if category not in ("volume", "gainers") or type(limit) is not int or not 1 <= limit <= 5:
-        raise ValueError("Discovery supports volume or gainers, up to five results")
-    info = sc.get("/api/v3/exchangeInfo")
+def eligible_symbols(info):
+    """Active USDT Spot markets supporting this bot's protective order types."""
     if not isinstance(info, dict) or not isinstance(info.get("symbols"), list):
         raise ValueError("Discovery: invalid Spot market metadata; no ranking available")
     symbols = set()
@@ -44,6 +42,13 @@ def rank_pairs(category, limit=5):
         except ValueError:
             continue
         symbols.add(symbol)
+    return symbols
+
+
+def rank_pairs(category, limit=5):
+    if category not in ("volume", "gainers") or type(limit) is not int or not 1 <= limit <= 5:
+        raise ValueError("Discovery supports volume or gainers, up to five results")
+    symbols = eligible_symbols(sc.get("/api/v3/exchangeInfo"))
     tickers = sc.get("/api/v3/ticker/24hr")
     if not isinstance(tickers, list):
         raise ValueError("Discovery: invalid 24-hour market response")

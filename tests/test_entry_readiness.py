@@ -71,6 +71,28 @@ def test_six_dollars_free_is_not_enough_for_two_five_dollar_legs(sim):
     assert caught.value.actions == ("portfolio",) and not sim.writes
 
 
+@pytest.mark.parametrize("manual", [False, True])
+@pytest.mark.parametrize("style", ["single", "two"])
+def test_planned_cost_includes_fees_and_cannot_exceed_spendable_cash(sim, manual, style):
+    sim.free["USDT"] = D("11.50")
+    signal = em.select_targets({**sig(), "manual_override": manual}, style)
+    plan = ta.build_plan(signal)
+    assert plan["cost"] == plan["qty"] * plan["price"] * (1 + plan["fee_rate"])
+    assert 0 < plan["cost"] <= plan["balance"] == sim.free["USDT"]
+    assert not sim.writes
+
+
+@pytest.mark.parametrize("manual", [False, True])
+@pytest.mark.parametrize("style", ["single", "two"])
+def test_balance_lost_after_proposal_is_rechecked_before_any_buy(sim, manual, style):
+    plan = ta.build_plan(em.select_targets({**sig(), "manual_override": manual}, style))
+    approval = approved(plan)
+    sim.free["USDT"] = D("0")
+    with pytest.raises(ValueError, match="No available USDT"):
+        ta.execute(plan, approval=approval, monitor=False)
+    assert not sim.writes and not em.load_trades()
+
+
 def test_six_dollar_exit_minimum_needs_more_than_twelve_including_reserve(sim):
     sim.min_notional = "6"
     with pytest.raises(ready.Unavailable) as caught:
@@ -184,3 +206,12 @@ def test_arbitrary_sdk_value_errors_cannot_supply_public_diagnostics_or_mode_ove
 
     problem = ready.problem(PrivateValueError())
     assert problem.code == "SYSTEM" and not problem.modes
+
+
+@pytest.mark.parametrize("mode", ["legacy", "now", "watch"])
+def test_approved_cost_above_remaining_cash_blocks_instead_of_downsizing(sim, mode):
+    plan = ta.build_plan({**sig(), "manual_override": True, "entry_mode": mode})
+    sim.free["USDT"] = D("8")
+    with pytest.raises(ValueError, match="Insufficient available funds"):
+        ta.execute(plan, approval=approved(plan), monitor=False)
+    assert not sim.writes
