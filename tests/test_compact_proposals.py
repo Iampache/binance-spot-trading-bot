@@ -135,7 +135,7 @@ def test_identity_is_only_in_startup_not_routine_telegram_output(sim, monkeypatc
     monkeypatch.setattr(tg, "AUTO_SCAN", False)
     monkeypatch.setattr(ta, "LIVE", False)
     assert "Market scanning: Disabled" in tg.startup_status()
-    assert "Early momentum alerts: OFF" in tg.startup_status()
+    assert "Early momentum alerts: ON" in tg.startup_status()
     assert "Connected to Binance Spot Testnet" in tg.startup_status()
     messages = []
     monkeypatch.setattr(tg, "say", lambda text, **kw: messages.append(text))

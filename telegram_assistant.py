@@ -22,7 +22,7 @@ Safeguards (apply to ALL paths, including manual):
   - If protection fails, confirmed bot-owned free inventory is reconciled before an exit attempt
 
 Other commands: /discover  /status  /cancel  /help
-Env extras: AUTO_SCAN=false disables automatic proposals and momentum discovery.
+Env extras: AUTO_SCAN=false disables automatic proposals; momentum alerts are independent.
 MOMENTUM_ALERTS=false starts momentum notifications muted; /momentum on enables them.
 
 Files needed in the SAME folder: entry_scanner.py, exit_manager.py, trade_assistant.py,
@@ -49,6 +49,7 @@ import entry_scanner as sc
 import exit_manager as em
 import market_discovery as discovery
 import momentum_watch as momentum
+import operator_preferences as preferences
 import portfolio_reporting
 import position_manager as positions
 import runtime_health
@@ -68,6 +69,7 @@ CHECK_TTL = int(os.getenv("CHECK_TTL_SECONDS", "600"))
 AUTO_SCAN = os.getenv("AUTO_SCAN", "true").lower() == "true"
 MOMENTUM_ALERTS = os.getenv("MOMENTUM_ALERTS", "true").lower() == "true"
 momentum_enabled = MOMENTUM_ALERTS
+startup_preferences = None
 API = f"https://api.telegram.org/bot{TOKEN}"
 
 last_preview = {}  # read-only snapshot for SHOW PR; never an approval source
@@ -1807,12 +1809,11 @@ def handle_message(msg):
             return
         say(
             f"Early momentum alerts: {'ON' if momentum_enabled else 'OFF'} for this session.\n"
-            + ("Automatic scanning is disabled; alerts cannot run.\n" if not AUTO_SCAN else "")
             + "Watches price movement each minute; needs at least 5 minutes of fresh samples after startup or a data gap.\n"
             "Triggers: 2% in 5m, 3% in 15m, or crossing +8% in rolling 24h. All require closed-candle confirmation and at least 2x volume.\n"
             "At most 3 alerts per 15 minutes; each pair at most once in 4 hours.\n"
             "These are watch opportunities, not approved trades. Existing requested watches continue.\n"
-            "Use /momentum on or /momentum off. Restart restores MOMENTUM_ALERTS (default ON)."
+            "Use /momentum on or /momentum off. Restart restores saved wizard preferences, or MOMENTUM_ALERTS if none are saved."
         )
     elif command == "/health":
         try:
@@ -2247,10 +2248,10 @@ def send_setup_menu():
         "Trading setup\n\n"
         f"Maximum active trades: {limits['max_open_trades']}\n"
         f"Maximum investment per trade: {limits['max_position_usdt']} USDT (including fee reserve)\n\n"
-        f"Scope: trades — {limits['scopes']['max_open_trades']}; investment — {limits['scopes']['max_position_usdt']}.\n"
-        f"Saved investment default: {limits['saved_limits']['max_position_usdt']} USDT. Parallel count is chosen at startup.\n"
+        "Changes below affect this session only.\n"
+        f"Startup investment default: {(startup_preferences or limits['saved_limits'])['max_position_usdt']} USDT. Parallel count is confirmed at startup.\n"
         f"Maximum allowed parallel trades: {settings.MAX_PARALLEL_TRADES}.\n"
-        "Changes here apply only to the current session. Permanent defaults are administrator-managed.\n\n"
+        "For permanent defaults, run ./configure-bot.sh on your installation.\n\n"
         "The investment is a cap; available funds, risk sizing and exchange rules can reduce it. "
         "Different pairs may run concurrently; duplicate pairs and unresolved positions block entry.\n"
         "Normal entries retain 1% risk sizing and the 3 USDT daily risk budget. "
@@ -2290,7 +2291,7 @@ def handle_setup_value(text):
         "Applies to new entries. Existing positions and protective OCOs stay in place. "
         "Pending proposals and untriggered watches will require fresh approval. "
         "Use for this session: choose parallel count again next startup; the investment cap returns to its saved default on restart.\n"
-        "Permanent changes require administrator approval. No setting or order changes until you confirm.",
+        "For permanent defaults, run ./configure-bot.sh. No setting or order changes until you confirm.",
         [
             ("Use for this session (default)", "SA"),
             ("About permanent limits", "SU"),
@@ -2368,9 +2369,9 @@ def handle_setup_callback(cb, action, sid):
             "This includes the buy fee reserve. /cancel to stop."
         )
     elif action in ("SU", "SP") and item["field"] is not None:
-        ack("Administrator approval is required for a permanent change.")
+        ack("Use ./configure-bot.sh for saved defaults.")
         say(
-            "Permanent defaults are administrator-managed. No permanent change has been made. An operational Helpdesk contact is not configured yet. Use the original confirmation's Use for this session button, or Cancel."
+            "Run ./configure-bot.sh on your installation to save defaults for future starts. No permanent change has been made here. Use the session confirmation or Cancel."
         )
     elif action == "SA" and item["field"] is not None:
         setup_views.pop(sid, None)  # A confirmation is single use even if saving fails.
@@ -2759,7 +2760,7 @@ def scanner_loop():
 def startup_status():
     connection = "Connected to Binance Spot" + ("" if ta.LIVE else " Testnet")
     scanning = "Active" if AUTO_SCAN else "Disabled — use /check"
-    alerts = "ON" if AUTO_SCAN and momentum_enabled else "OFF"
+    alerts = "ON" if momentum_enabled else "OFF"
     return f"{connection}\nMarket scanning: {scanning}\nEarly momentum alerts: {alerts} (/momentum)\nTrade execution: Requires Telegram approval"
 
 
@@ -2844,7 +2845,7 @@ def _run_main():
     start_managed_worker(em.result_notice_loop)
     if AUTO_SCAN:
         start_managed_worker(scanner_loop)
-        start_managed_worker(momentum_loop)
+    start_managed_worker(momentum_loop)
     print(startup_status(), flush=True)
 
     while not em.STOP.is_set():
@@ -2905,17 +2906,16 @@ def request_shutdown():
         )
 
 
-def prompt_parallel_count():
+def prompt_parallel_count(default=1):
     print(
         f"Choose how many parallel trades to allow this run (1–{settings.MAX_PARALLEL_TRADES}). This does not place any trade.",
         flush=True,
     )
     while True:
         try:
-            value = (
-                input(f"Parallel trades [1; maximum {settings.MAX_PARALLEL_TRADES}]: ").strip()
-                or "1"
-            )
+            value = input(
+                f"Parallel trades [{default}; maximum {settings.MAX_PARALLEL_TRADES}]: "
+            ).strip() or str(default)
             return settings.parse_value("max_open_trades", value)
         except ValueError as error:
             print(str(error), flush=True)
@@ -2928,16 +2928,25 @@ def prompt_parallel_count():
 
 
 def main():
-    global proposal_generation, momentum_enabled
+    global proposal_generation, momentum_enabled, AUTO_SCAN, startup_preferences
+    startup_preferences = preferences.read(em.BASE_DIR)
     if not TOKEN or not CHAT_ID:
         raise SystemExit("Telegram configuration missing")
     print(BRANDING, flush=True)
     print(f"Environment: {mode_label()}", flush=True)
-    parallel_count = prompt_parallel_count()
+    parallel_count = (
+        prompt_parallel_count(startup_preferences["max_open_trades"])
+        if startup_preferences
+        else prompt_parallel_count()
+    )
     if parallel_count is None:
         return
     em.STOP.clear()
-    momentum_enabled = MOMENTUM_ALERTS
+    momentum_enabled = (
+        startup_preferences["momentum_alerts"] if startup_preferences else MOMENTUM_ALERTS
+    )
+    if startup_preferences:
+        AUTO_SCAN = startup_preferences["auto_scan"]
     with pend_lock:
         proposal_generation += 1
         for watch in setup_watches.values():
@@ -2986,6 +2995,14 @@ def main():
                 actor="console operator",
                 scope="session",
             )
+            if startup_preferences:
+                settings.update(
+                    "max_position_usdt",
+                    startup_preferences["max_position_usdt"],
+                    expected_revision=settings.read()["revision"],
+                    actor="startup preferences",
+                    scope="session",
+                )
         _run_main()
     finally:
         em.STOP.set()

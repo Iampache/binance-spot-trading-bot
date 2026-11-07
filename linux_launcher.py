@@ -6,6 +6,8 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
+import operator_preferences
+
 REQUIRED = ("API_KEY", "API_SECRET", "TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID")
 DEFAULTS = {
     "USE_TESTNET": "true",
@@ -62,6 +64,7 @@ def main():
     folder = Path(__file__).resolve().parent
     try:
         config = configuration(folder)
+        operator_preferences.read(folder)  # Validate saved defaults before starting tmux.
     except ValueError as error:
         print(str(error))
         return 1

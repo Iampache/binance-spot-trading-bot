@@ -90,7 +90,7 @@ def test_chat_cannot_persist_limits_even_with_a_forged_old_save_action(sim, ui, 
     tg.handle_callback(click(action, sid, item))
     assert settings.read()["max_open_trades"] == 1 and settings.read()["revision"] == 0
     assert not (em.TRADES_DIR.parent / "settings.json").exists()
-    assert any("administrator-managed" in data.get("text", "") for _, data in ui)
+    assert any("./configure-bot.sh" in data.get("text", "") for _, data in ui)
     tg.handle_callback(click("SA", sid, item))
     assert settings.read()["max_open_trades"] == 4 and not sim.writes
 

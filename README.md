@@ -1,6 +1,6 @@
 # NEXVANT
 
-Binance Spot trading assistant with Telegram control. Concept & developed by Fazil.
+Binance Spot trading assistant with Telegram control. Created by IamPache.
 
 ## Choose Single target or Two targets (v1.11.0)
 
@@ -754,7 +754,7 @@ liquidity, risk and approval checks still apply when requesting an entry.
 `/momentum` explains the status and rules. `/momentum off` mutes these alerts for
 the session; `/momentum on` restores them. Existing user-requested watches and
 trade proposals continue. Set `MOMENTUM_ALERTS=false` to start muted on subsequent
-runs. `AUTO_SCAN=false` disables both automatic workers. The standalone
+runs. `AUTO_SCAN=false` disables trade scanning only; momentum alerts are independent. The standalone
 `entry_scanner.py` command retains its original behavior.
 
 Warmup requires at least five minutes of fresh samples after startup, re-enabling
@@ -847,8 +847,7 @@ use `/check COIN` and fresh approval when you can open another position.
 
 ## Presentation and version
 
-The scanner and assistant share the NEXVANT identity, current version, “Concept &
-Developed by Fazil,” and the GitHub repository URL from `branding.py`. The first
+The scanner and assistant share the NEXVANT identity, current version, “Created by IamPache,” and the GitHub repository URL from `branding.py`. The first
 tracked display version was 1.0.0; NEXVANT branding begins at 1.5.0. Display
 versions do not claim that a Git release/tag has been published. Full identity
 appears in startup; routine trading messages retain compact formatting without
@@ -1165,3 +1164,33 @@ while the bot runs; **Ctrl+C** stops the bot. After shutdown or a startup error,
 the pane retains the exit message: press Enter to close it, then rerun the loader.
 It does not automatically restart after a crash or VM reboot. No new dependencies,
 Git pull, or production deployment are performed by the launcher.
+
+
+## Saved customer preferences
+
+Run `./configure-bot.sh` (or `.venv/bin/python configure_bot.py`) on your installation.
+It displays saved defaults, offers guided changes or restoration of the previous
+settings, and requires typing SAVE or RESTORE before writing anything. Configure:
+
+- Parallel trades, 1–10.
+- Maximum USDT investment per trade including the fee reserve.
+- Automatic trade scanning, ON/OFF.
+- Momentum notifications, ON/OFF, independently of trade scanning.
+
+The confirmation displays the combined allocation ceiling. Funds, risk sizing,
+exchange rules and Telegram approval remain enforced. Preferences apply at the
+next restart; running positions, pending approvals and protective orders are not
+modified by the wizard. The startup count prompt accepts the saved count when
+Enter is pressed. Telegram /setup still makes session-only changes.
+
+Defaults are installation-scoped in ignored `runtime_state/preferences.json`.
+The previous file is backed up to `preferences.previous.json`; a null backup
+means no wizard overrides existed. Restore swaps back to that prior configuration.
+Writes use a local lock, stale-edit detection and atomic replacement. These files
+contain no credentials. Neither `.env` nor account journals are modified.
+Before the first save, the wizard proposes 1 trade, 12 USDT and both switches ON;
+review all four before saving. Without wizard overrides, the existing account
+investment default, startup count of 1 and `.env` notification switches apply.
+Saved wizard preferences take precedence over `.env` for these four choices.
+They apply to this installation regardless of which account it is configured to
+use, so review them when changing accounts. Back up the whole runtime_state folder.
